@@ -198,15 +198,10 @@ export default function BarbeariaHiroschi() {
                   <span className="text-xs font-normal text-emerald-400">Disponível</span>
                 )}
               </button>
-            ))}
-          </div>
-          {erroAgendamento && (
-            <div className="p-4 bg-red-950/80 border border-red-900 rounded-xl text-sm text-red-200 mt-2 font-medium">
-              ⚠️ {erroAgendamento}
-            </div>
-          )}
+            
         </div>
-      )}
+       ) 
+      }
 
       {estaLogado && telaAtual === "clube" && (
         <div className="w-full max-w-md flex flex-col space-y-4">
