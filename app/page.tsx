@@ -286,14 +286,4 @@ export default function BarbeariaHiroschi() {
         </div>
       )}
 
-      <style jsx global>{`
-        .v0-badge, [class*="v0-"], [id*="v0-"], img[src*="v0.dev"], div[style*="fixed"][style*="bottom"] {
-          display: none !important;
-          opacity: 0 !important;
-          pointer-events: none !important;
-        }
-      `}</style>
-
-    </div>
-  )
-}
+      
