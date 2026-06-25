@@ -19,12 +19,10 @@ interface BannerFoto {
 }
 
 export default function BarbeariaHiroschi() {
-  // Controle de login e navegação
   const [estaLogado, setEstaLogado] = useState(false)
   const [whatsapp, setWhatsapp] = useState("")
   const [telaAtual, setTelaAtual] = useState<"inicial" | "agendamento" | "meus_agendamentos" | "clube" | "produtos" | "painel">("inicial")
   
-  // Dados do Aplicativo
   const [fotosBanners, setFotosBanners] = useState<BannerFoto[]>([
     { id: "1", url: "https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=500", titulo: "Taper Fade Americano", ordem: 1 },
     { id: "2", url: "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=500", titulo: "Barba Alinhada", ordem: 2 }
@@ -42,10 +40,9 @@ export default function BarbeariaHiroschi() {
 
   const [diaSelecionado, setDiaSelecionado] = useState("")
   const [erroAgendamento, setErroAgendamento] = useState("")
-  const [caixaDoDia, setCaixaDoDia] = useState({ pix: 320, cartao: 410, dinero: 180, total: 910 })
+  const [caixaDoDia, setCaixaDoDia] = useState({ pix: 320, cartao: 410, dinheiro: 180, total: 910 })
   const [atendimentosClubeContador, setAtendimentosClubeContador] = useState<string[]>(["João (Diamante)", "Carlos (Prata)"])
 
-  // Efeito do Carrossel de Fotos
   useEffect(() => {
     if (fotosBanners.length === 0 || !estaLogado) return
     const interval = setInterval(() => {
@@ -75,7 +72,6 @@ export default function BarbeariaHiroschi() {
   return (
     <div className="min-h-screen bg-neutral-950 text-white font-sans flex flex-col items-center p-4 selection:bg-amber-500">
       
-      {/* 1. TELA DE LOGIN (SÓ APARECE SE NÃO ESTIVER LOGADO) */}
       {!estaLogado && (
         <div className="w-full max-w-md flex flex-col items-center justify-center min-h-[80vh] space-y-6">
           <div className="w-full bg-neutral-900 border border-neutral-800 p-6 rounded-2xl shadow-xl text-center space-y-6">
@@ -108,7 +104,6 @@ export default function BarbeariaHiroschi() {
         </div>
       )}
 
-      {/* 2. MENU PRINCIPAL (APÓS LOGIN bem-sucedido) */}
       {estaLogado && telaAtual === "inicial" && (
         <div className="w-full max-w-md flex flex-col items-center space-y-6 text-center pt-6">
           <div className="flex flex-col items-center space-y-2">
@@ -116,10 +111,9 @@ export default function BarbeariaHiroschi() {
               BARBER
             </div>
             <h1 className="text-xl font-extrabold mt-2 tracking-tight">Olá, bem-vindo de volta!</h1>
-            <p className="text-neutral-400 text-xs">Escolha o que deseja fazer hoje:</p>
+            <p className="text-neutral-400 text-xs">O que você deseja fazer hoje?</p>
           </div>
 
-          {/* Carrossel de Fotos Automático */}
           {fotosBanners.length > 0 && (
             <div className="w-full relative rounded-2xl overflow-hidden border border-neutral-800 bg-neutral-900">
               <div className="h-56 w-full relative flex items-center justify-center">
@@ -143,7 +137,9 @@ export default function BarbeariaHiroschi() {
                 <div className="text-left"><p className="font-bold text-sm">Novo Agendamento</p><p className="text-neutral-400 text-xs">Escolha e combine os serviços</p></div>
               </div>
               <span className="text-neutral-500 text-sm">→</span>
-            </button><button onClick={() => setTelaAtual("meus_agendamentos")} className="w-full p-4 bg-neutral-900 border border-neutral-800 text-left rounded-xl flex items-center justify-between hover:border-neutral-700 transition">
+            </button>
+
+            <button onClick={() => setTelaAtual("meus_agendamentos")} className="w-full p-4 bg-neutral-900 border border-neutral-800 text-left rounded-xl flex items-center justify-between hover:border-neutral-700 transition">
               <div className="flex items-center space-x-3">
                 <span className="text-xl">📋</span>
                 <div className="text-left"><p className="font-bold text-sm">Ver Meus Agendamentos</p><p className="text-neutral-400 text-xs">Consulte ou cancele seus horários</p></div>
@@ -174,7 +170,6 @@ export default function BarbeariaHiroschi() {
         </div>
       )}
 
-      {/* TELA DE AGENDAMENTO */}
       {estaLogado && telaAtual === "agendamento" && (
         <div className="w-full max-w-md flex flex-col space-y-4">
           <div className="flex items-center space-x-2">
@@ -213,7 +208,6 @@ export default function BarbeariaHiroschi() {
         </div>
       )}
 
-      {/* TELA DO CLUBE */}
       {estaLogado && telaAtual === "clube" && (
         <div className="w-full max-w-md flex flex-col space-y-4">
           <div className="flex items-center space-x-2">
@@ -243,7 +237,6 @@ export default function BarbeariaHiroschi() {
         </div>
       )}
 
-      {/* VITRINE DE PRODUTOS */}
       {estaLogado && telaAtual === "produtos" && (
         <div className="w-full max-w-md flex flex-col space-y-4">
           <div className="flex items-center space-x-2">
@@ -267,7 +260,6 @@ export default function BarbeariaHiroschi() {
         </div>
       )}
 
-      {/* PAINEL ADMINISTRADOR */}
       {estaLogado && telaAtual === "painel" && (
         <div className="w-full max-w-md flex flex-col space-y-4">
           <div className="flex items-center space-x-2">
@@ -299,7 +291,6 @@ export default function BarbeariaHiroschi() {
         </div>
       )}
 
-      {/* REMOVE TOTALMENTE OS CRÉDITOS DO V0 DO CANTO DA TELA */}
       <style jsx global>{`
         .v0-badge, [class*="v0-"], [id*="v0-"], img[src*="v0.dev"], div[style*="fixed"][style*="bottom"] {
           display: none !important;
