@@ -36,8 +36,10 @@ interface Agendamento {
   servico: string
   dia: string
   horario: string
+  duracao: number // duração total em minutos
   eClube: boolean
   planoClube?: string
+  eEncaixe?: boolean
 }
 
 interface MovimentacaoCaixa {
@@ -50,6 +52,29 @@ interface MovimentacaoCaixa {
   metodo: "PIX" | "Cartão" | "Dinheiro" | "Clube Hiroschi"
   eClube: boolean
   data: string
+}
+
+interface Servico {
+  id: string
+  nome: string
+  preco: number
+  duracao: number // em minutos
+  foto: string
+}
+
+interface HorarioDia {
+  dia: string
+  aberto: boolean
+  abertura: string // "HH:MM"
+  fechamento: string // "HH:MM"
+}
+
+interface ClienteCadastro {
+  id: string
+  nome: string
+  apelido: string
+  telefone: string
+  nascimento: string // "DD/MM/AAAA"
 }
 
 // ==========================================
@@ -135,7 +160,8 @@ export default function BarbeariaHiroschi() {
 
   // Estado dos Agendamentos
   const [diaSelecionado, setDiaSelecionado] = useState("")
-  const [servicoSelecionado, setServicoSelecionado] = useState("Corte de Cabelo")
+  const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([])
+  const [horarioSelecionado, setHorarioSelecionado] = useState("")
   const [erroAgendamento, setErroAgendamento] = useState("")
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([
     {
@@ -144,10 +170,19 @@ export default function BarbeariaHiroschi() {
       servico: "Corte de Cabelo",
       dia: "Quarta",
       horario: "14:00",
+      duracao: 30,
       eClube: true,
       planoClube: "Diamante",
     },
-    { id: "2", clienteNome: "João Silva", servico: "Corte + Barba", dia: "Sábado", horario: "10:00", eClube: false },
+    {
+      id: "2",
+      clienteNome: "João Silva",
+      servico: "Corte + Barba",
+      dia: "Sábado",
+      horario: "10:00",
+      duracao: 45,
+      eClube: false,
+    },
   ])
 
   // Estado dos Produtos
@@ -167,6 +202,51 @@ export default function BarbeariaHiroschi() {
       descricao: "Hidratação profunda para os fios e a pele.",
     },
   ])
+
+  // Aba ativa do Painel Administrativo
+  const [abaAdmin, setAbaAdmin] = useState<
+    "caixa" | "agenda" | "servicos" | "horarios" | "clientes" | "clube" | "banners"
+  >("caixa")
+
+  // Estado dos Serviços (CRUD)
+  const [servicos, setServicos] = useState<Servico[]>([
+    { id: "s1", nome: "Corte de Cabelo", preco: 35, duracao: 30, foto: "" },
+    { id: "s2", nome: "Barba Completa", preco: 30, duracao: 20, foto: "" },
+    { id: "s3", nome: "Corte + Barba", preco: 60, duracao: 45, foto: "" },
+    { id: "s4", nome: "Sobrancelha", preco: 15, duracao: 10, foto: "" },
+  ])
+  // Formulário de Serviço (cadastro/edição)
+  const [servicoEditandoId, setServicoEditandoId] = useState<string | null>(null)
+  const [servicoNome, setServicoNome] = useState("")
+  const [servicoPreco, setServicoPreco] = useState("")
+  const [servicoDuracao, setServicoDuracao] = useState("")
+  const [servicoFoto, setServicoFoto] = useState("")
+
+  // Estado dos Horários de Funcionamento
+  const [horarios, setHorarios] = useState<HorarioDia[]>([
+    { dia: "Domingo", aberto: false, abertura: "09:00", fechamento: "18:00" },
+    { dia: "Segunda", aberto: false, abertura: "09:00", fechamento: "19:00" },
+    { dia: "Terça", aberto: true, abertura: "09:00", fechamento: "19:00" },
+    { dia: "Quarta", aberto: true, abertura: "09:00", fechamento: "19:00" },
+    { dia: "Quinta", aberto: true, abertura: "09:00", fechamento: "19:00" },
+    { dia: "Sexta", aberto: true, abertura: "09:00", fechamento: "20:00" },
+    { dia: "Sábado", aberto: true, abertura: "08:00", fechamento: "18:00" },
+  ])
+
+  // Estado dos Clientes (cadastro)
+  const [clientesCadastrados] = useState<ClienteCadastro[]>([
+    { id: "cl1", nome: "Tiago Antônio", apelido: "Tiaguinho", telefone: "11999998888", nascimento: "15/03/1990" },
+    { id: "cl2", nome: "João Silva", apelido: "João", telefone: "11988887777", nascimento: "22/07/1985" },
+    { id: "cl3", nome: "Maria Oliveira", apelido: "Mari", telefone: "11977776666", nascimento: "05/12/1995" },
+    { id: "cl4", nome: "Carlos Eduardo", apelido: "Cadu", telefone: "11966665555", nascimento: "30/01/1988" },
+  ])
+  const [buscaCliente, setBuscaCliente] = useState("")
+
+  // Formulário de Encaixe Manual (Agenda)
+  const [encaixeCliente, setEncaixeCliente] = useState("")
+  const [encaixeServico, setEncaixeServico] = useState("")
+  const [encaixeDia, setEncaixeDia] = useState("Terça")
+  const [encaixeHorario, setEncaixeHorario] = useState("")
 
   // Estado do Caixa Financeiro
   const [historicoCaixa, setHistoricoCaixa] = useState<MovimentacaoCaixa[]>([
@@ -311,8 +391,63 @@ export default function BarbeariaHiroschi() {
     )
   }
 
+  // ------------------------------------------
+  // HELPERS DE HORÁRIO
+  // ------------------------------------------
+  const horaParaMinutos = (hora: string) => {
+    const [h, m] = hora.split(":").map(Number)
+    return h * 60 + m
+  }
+  const minutosParaHora = (min: number) => {
+    const h = Math.floor(min / 60)
+    const m = min % 60
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+  }
+
+  // Duração total dos serviços escolhidos (em minutos)
+  const duracaoTotalSelecionada = servicosSelecionados.reduce((acc, id) => {
+    const s = servicos.find((sv) => sv.id === id)
+    return acc + (s ? s.duracao : 0)
+  }, 0)
+
+  // Preço total dos serviços escolhidos
+  const precoTotalSelecionado = servicosSelecionados.reduce((acc, id) => {
+    const s = servicos.find((sv) => sv.id === id)
+    return acc + (s ? s.preco : 0)
+  }, 0)
+
+  // Gera os horários disponíveis para o dia, respeitando o funcionamento
+  // e a duração total: o próximo horário só abre após o término do anterior.
+  const gerarHorariosDisponiveis = (dia: string, duracao: number) => {
+    const config = horarios.find((h) => h.dia === dia)
+    if (!config || !config.aberto || duracao <= 0) return []
+
+    const inicio = horaParaMinutos(config.abertura)
+    const fim = horaParaMinutos(config.fechamento)
+    const ocupados = agendamentos.filter((a) => a.dia === dia)
+    const slots: string[] = []
+
+    for (let t = inicio; t + duracao <= fim; t += 15) {
+      const conflito = ocupados.some((a) => {
+        const aInicio = horaParaMinutos(a.horario)
+        const aFim = aInicio + (a.duracao || 30)
+        return t < aFim && t + duracao > aInicio
+      })
+      if (!conflito) slots.push(minutosParaHora(t))
+    }
+    return slots
+  }
+
+  const alternarServicoSelecionado = (id: string) => {
+    setHorarioSelecionado("")
+    setServicosSelecionados((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
+    )
+  }
+
   const lidarComSelecaoDeDia = (dia: string) => {
     setDiaSelecionado(dia)
+    setHorarioSelecionado("")
     setErroAgendamento("")
 
     // Regra de Restrição do Clube
@@ -326,24 +461,41 @@ export default function BarbeariaHiroschi() {
   }
 
   const confirmarAgendamento = () => {
+    if (servicosSelecionados.length === 0) {
+      alert("Selecione ao menos um serviço.")
+      return
+    }
     if (!diaSelecionado) {
       alert("Por favor, selecione um dia.")
       return
     }
     if (erroAgendamento) return
+    if (!horarioSelecionado) {
+      alert("Selecione um horário disponível.")
+      return
+    }
+
+    const nomesServicos = servicosSelecionados
+      .map((id) => servicos.find((s) => s.id === id)?.nome)
+      .filter(Boolean)
+      .join(" + ")
 
     const novo: Agendamento = {
       id: Date.now().toString(),
       clienteNome: usuarioClube?.nome || "Cliente WhatsApp",
-      servico: servicoSelecionado,
+      servico: nomesServicos,
       dia: diaSelecionado,
-      horario: "15:00",
+      horario: horarioSelecionado,
+      duracao: duracaoTotalSelecionada,
       eClube: !!(usuarioClube && usuarioClube.status === "Ativo"),
       planoClube: usuarioClube?.plano,
     }
 
     setAgendamentos([...agendamentos, novo])
     alert("Agendamento efetuado com sucesso!")
+    setServicosSelecionados([])
+    setHorarioSelecionado("")
+    setDiaSelecionado("")
     setTelaAtual("meus_agendamentos")
   }
 
@@ -377,6 +529,113 @@ export default function BarbeariaHiroschi() {
 
   const removerBanner = (id: string) => {
     setFotosBanners(fotosBanners.filter((b) => b.id !== id))
+  }
+
+  // ------------------------------------------
+  // SERVIÇOS (CRUD)
+  // ------------------------------------------
+  const lidarComUploadFotoServico = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    const leitor = new FileReader()
+    leitor.onload = () => setServicoFoto(leitor.result as string)
+    leitor.readAsDataURL(arquivo)
+  }
+
+  const limparFormServico = () => {
+    setServicoEditandoId(null)
+    setServicoNome("")
+    setServicoPreco("")
+    setServicoDuracao("")
+    setServicoFoto("")
+  }
+
+  const salvarServico = (e: React.FormEvent) => {
+    e.preventDefault()
+    const preco = Number.parseFloat(servicoPreco) || 0
+    const duracao = Number.parseInt(servicoDuracao) || 0
+    if (!servicoNome || duracao <= 0) return
+
+    if (servicoEditandoId) {
+      // Alterar serviço existente
+      setServicos((prev) =>
+        prev.map((s) =>
+          s.id === servicoEditandoId ? { ...s, nome: servicoNome, preco, duracao, foto: servicoFoto } : s,
+        ),
+      )
+    } else {
+      // Cadastrar novo serviço
+      const novo: Servico = { id: Date.now().toString(), nome: servicoNome, preco, duracao, foto: servicoFoto }
+      setServicos((prev) => [...prev, novo])
+    }
+    limparFormServico()
+  }
+
+  const editarServico = (s: Servico) => {
+    setServicoEditandoId(s.id)
+    setServicoNome(s.nome)
+    setServicoPreco(String(s.preco))
+    setServicoDuracao(String(s.duracao))
+    setServicoFoto(s.foto)
+  }
+
+  const excluirServico = (id: string) => {
+    setServicos((prev) => prev.filter((s) => s.id !== id))
+    if (servicoEditandoId === id) limparFormServico()
+  }
+
+  // ------------------------------------------
+  // HORÁRIOS DE FUNCIONAMENTO
+  // ------------------------------------------
+  const alternarDiaAberto = (dia: string) => {
+    setHorarios((prev) => prev.map((h) => (h.dia === dia ? { ...h, aberto: !h.aberto } : h)))
+  }
+  const atualizarHorarioDia = (dia: string, campo: "abertura" | "fechamento", valor: string) => {
+    setHorarios((prev) => prev.map((h) => (h.dia === dia ? { ...h, [campo]: valor } : h)))
+  }
+
+  // ------------------------------------------
+  // CLIENTES
+  // ------------------------------------------
+  const clientesFiltrados = clientesCadastrados.filter((c) => {
+    const termo = buscaCliente.trim().toLowerCase()
+    if (!termo) return true
+    return c.nome.toLowerCase().includes(termo) || c.apelido.toLowerCase().includes(termo)
+  })
+
+  const abrirWhatsappCliente = (telefone: string, nome: string) => {
+    const numero = telefone.replace(/\D/g, "")
+    const numeroCompleto = numero.startsWith("55") ? numero : `55${numero}`
+    const mensagem = encodeURIComponent(`Olá ${nome.split(" ")[0]}, aqui é da Barbearia Hiroschi! `)
+    window.open(`https://wa.me/${numeroCompleto}?text=${mensagem}`, "_blank")
+  }
+
+  // ------------------------------------------
+  // ENCAIXE MANUAL (ignora a trava de 6 horas)
+  // ------------------------------------------
+  const criarEncaixe = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!encaixeCliente || !encaixeHorario) {
+      alert("Informe o cliente e o horário do encaixe.")
+      return
+    }
+    const servicoInfo = servicos.find((s) => s.id === encaixeServico)
+    const novo: Agendamento = {
+      id: Date.now().toString(),
+      clienteNome: encaixeCliente,
+      servico: servicoInfo ? servicoInfo.nome : "Encaixe",
+      dia: encaixeDia,
+      horario: encaixeHorario,
+      duracao: servicoInfo ? servicoInfo.duracao : 30,
+      eClube: false,
+      eEncaixe: true,
+    }
+    // Encaixe é criado diretamente, ignorando a trava de antecedência de 6 horas
+    setAgendamentos((prev) => [...prev, novo])
+    setEncaixeCliente("")
+    setEncaixeServico("")
+    setEncaixeHorario("")
+    alert("Encaixe adicionado à agenda!")
   }
 
   const lancarCaixa = (e: React.FormEvent) => {
@@ -707,38 +966,73 @@ export default function BarbeariaHiroschi() {
             <div className="space-y-6">
               <h2 className="text-lg font-bold text-amber-500 border-b border-neutral-800 pb-2">Agendar Horário</h2>
 
-              {/* SELEÇÃO DE SERVIÇO */}
+              {/* SELEÇÃO DE SERVIÇOS (MÚLTIPLA) */}
               <div className="space-y-2">
-                <label className="text-xs text-neutral-400">Serviço</label>
-                <select
-                  value={servicoSelecionado}
-                  onChange={(e) => setServicoSelecionado(e.target.value)}
-                  className="w-full p-3 bg-neutral-900 border border-neutral-800 rounded-xl text-white focus:outline-none"
-                >
-                  <option value="Corte de Cabelo">Corte de Cabelo - R$ 35</option>
-                  <option value="Barba Completa">Barba Completa - R$ 30</option>
-                  <option value="Corte + Barba">Combo Corte + Barba - R$ 60</option>
-                  <option value="Sobrancelha">Sobrancelha - R$ 15</option>
-                </select>
+                <label className="text-xs text-neutral-400">Serviços (selecione um ou mais)</label>
+                <div className="space-y-2">
+                  {servicos.map((s) => {
+                    const marcado = servicosSelecionados.includes(s.id)
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => alternarServicoSelecionado(s.id)}
+                        className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition ${
+                          marcado
+                            ? "bg-amber-500/10 border-amber-500"
+                            : "bg-neutral-900 border-neutral-800 hover:border-neutral-700"
+                        }`}
+                      >
+                        <span className="flex items-center gap-3">
+                          <span
+                            className={`w-5 h-5 rounded border flex items-center justify-center text-[10px] font-black ${
+                              marcado ? "bg-amber-500 border-amber-500 text-black" : "border-neutral-600 text-transparent"
+                            }`}
+                          >
+                            ✓
+                          </span>
+                          <span>
+                            <span className="block text-sm font-medium text-white">{s.nome}</span>
+                            <span className="block text-[11px] text-neutral-400">{s.duracao} min</span>
+                          </span>
+                        </span>
+                        <span className="text-sm font-bold text-amber-500">R$ {s.preco.toFixed(2)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {servicosSelecionados.length > 0 && (
+                  <div className="flex justify-between text-xs text-neutral-300 bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                    <span>
+                      Duração total: <strong className="text-amber-400">{duracaoTotalSelecionada} min</strong>
+                    </span>
+                    <span>
+                      Total: <strong className="text-amber-400">R$ {precoTotalSelecionado.toFixed(2)}</strong>
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* SELEÇÃO DO DIA */}
+              {/* SELEÇÃO DO DIA (APENAS DIAS ABERTOS) */}
               <div className="space-y-2">
                 <label className="text-xs text-neutral-400">Escolha o Dia</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {["Terça", "Quarta", "Quinta", "Sexta", "Sábado"].map((dia) => (
-                    <button
-                      key={dia}
-                      onClick={() => lidarComSelecaoDeDia(dia)}
-                      className={`p-3 rounded-xl border text-sm font-medium transition ${
-                        diaSelecionado === dia
-                          ? "bg-amber-500 border-amber-500 text-black font-bold"
-                          : "bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700"
-                      }`}
-                    >
-                      {dia}
-                    </button>
-                  ))}
+                  {horarios
+                    .filter((h) => h.aberto)
+                    .map((h) => (
+                      <button
+                        key={h.dia}
+                        onClick={() => lidarComSelecaoDeDia(h.dia)}
+                        className={`p-3 rounded-xl border text-sm font-medium transition ${
+                          diaSelecionado === h.dia
+                            ? "bg-amber-500 border-amber-500 text-black font-bold"
+                            : "bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700"
+                        }`}
+                      >
+                        {h.dia}
+                      </button>
+                    ))}
                 </div>
               </div>
 
@@ -756,9 +1050,42 @@ export default function BarbeariaHiroschi() {
                 </div>
               )}
 
+              {/* HORÁRIOS DISPONÍVEIS (BASEADOS NA DURAÇÃO TOTAL) */}
+              {diaSelecionado && !erroAgendamento && servicosSelecionados.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-xs text-neutral-400">Horários disponíveis</label>
+                  {gerarHorariosDisponiveis(diaSelecionado, duracaoTotalSelecionada).length === 0 ? (
+                    <p className="text-xs text-neutral-500 bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                      Não há horários livres para essa duração neste dia.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-2">
+                      {gerarHorariosDisponiveis(diaSelecionado, duracaoTotalSelecionada).map((hora) => (
+                        <button
+                          key={hora}
+                          onClick={() => setHorarioSelecionado(hora)}
+                          className={`py-2 rounded-lg border text-xs font-medium transition ${
+                            horarioSelecionado === hora
+                              ? "bg-amber-500 border-amber-500 text-black font-bold"
+                              : "bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700"
+                          }`}
+                        >
+                          {hora}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
                 onClick={confirmarAgendamento}
-                disabled={!!erroAgendamento || !diaSelecionado}
+                disabled={
+                  !!erroAgendamento ||
+                  !diaSelecionado ||
+                  servicosSelecionados.length === 0 ||
+                  !horarioSelecionado
+                }
                 className="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold rounded-xl uppercase tracking-wider transition"
               >
                 Confirmar Agendamento
@@ -911,7 +1238,35 @@ export default function BarbeariaHiroschi() {
 
           {/* PAINEL ADMINISTRATIVO (PROPRIETÁRIO) */}
           {eAdmin && (
-            <div className="space-y-8">
+            <div className="space-y-6">
+              {/* NAVEGAÇÃO POR ABAS DO PAINEL */}
+              <nav className="grid grid-cols-4 gap-1 bg-neutral-900 p-1 rounded-xl border border-neutral-800 text-[10px] sm:text-xs">
+                {(
+                  [
+                    { id: "caixa", label: "Caixa" },
+                    { id: "agenda", label: "Agenda" },
+                    { id: "servicos", label: "Serviços" },
+                    { id: "horarios", label: "Horários" },
+                    { id: "clientes", label: "Clientes" },
+                    { id: "clube", label: "Clube" },
+                    { id: "banners", label: "Banners" },
+                  ] as { id: typeof abaAdmin; label: string }[]
+                ).map((aba) => (
+                  <button
+                    key={aba.id}
+                    onClick={() => setAbaAdmin(aba.id)}
+                    className={`py-2 rounded-lg transition text-center font-medium ${
+                      abaAdmin === aba.id ? "bg-amber-500 text-black font-bold" : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    {aba.label}
+                  </button>
+                ))}
+              </nav>
+
+              {/* ABA CAIXA */}
+              {abaAdmin === "caixa" && (
+              <>
               {/* CAIXA DO DIA E RECEBIMENTOS */}
               <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
                 <h2 className="text-lg font-black text-amber-500 uppercase tracking-wide flex items-center justify-between">
@@ -1010,7 +1365,320 @@ export default function BarbeariaHiroschi() {
                   </button>
                 </form>
               </div>
+              </>
+              )}
 
+              {/* ABA AGENDA (LISTA + ENCAIXE MANUAL) */}
+              {abaAdmin === "agenda" && (
+                <>
+                  {/* ENCAIXE MANUAL */}
+                  <div className="bg-neutral-900 border border-amber-500/30 p-5 rounded-2xl space-y-4">
+                    <h2 className="text-sm font-bold text-amber-500 uppercase">➕ Novo Encaixe Manual</h2>
+                    <p className="text-[11px] text-neutral-400 leading-relaxed">
+                      O encaixe é criado diretamente pelo proprietário e ignora a trava de antecedência de 6 horas.
+                    </p>
+                    <form onSubmit={criarEncaixe} className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder="Nome do Cliente"
+                        value={encaixeCliente}
+                        onChange={(e) => setEncaixeCliente(e.target.value)}
+                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                        required
+                      />
+                      <select
+                        value={encaixeServico}
+                        onChange={(e) => setEncaixeServico(e.target.value)}
+                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                      >
+                        <option value="">Selecione o serviço</option>
+                        {servicos.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.nome} • {s.duracao} min • R$ {s.preco.toFixed(2)}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={encaixeDia}
+                          onChange={(e) => setEncaixeDia(e.target.value)}
+                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                        >
+                          {horarios.map((h) => (
+                            <option key={h.dia} value={h.dia}>
+                              {h.dia}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="time"
+                          value={encaixeHorario}
+                          onChange={(e) => setEncaixeHorario(e.target.value)}
+                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                          required
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase tracking-wider transition"
+                      >
+                        Adicionar Encaixe
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* LISTA DE AGENDAMENTOS */}
+                  <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                    <h2 className="text-sm font-bold text-amber-500 uppercase">📅 Agenda de Atendimentos</h2>
+                    {agendamentos.length === 0 ? (
+                      <p className="text-xs text-neutral-500 text-center py-4">Nenhum agendamento na agenda.</p>
+                    ) : (
+                      agendamentos.map((a) => (
+                        <div
+                          key={a.id}
+                          className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-xs flex justify-between items-center"
+                        >
+                          <div>
+                            <h4 className="font-bold text-white flex items-center gap-2">
+                              {a.clienteNome}
+                              {a.eEncaixe && (
+                                <span className="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold uppercase">
+                                  Encaixe
+                                </span>
+                              )}
+                              {a.eClube && (
+                                <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded font-bold uppercase">
+                                  Clube
+                                </span>
+                              )}
+                            </h4>
+                            <p className="text-[10px] text-neutral-400">
+                              {a.servico} • {a.duracao} min
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="block font-bold text-amber-400">{a.horario}</span>
+                            <span className="block text-[10px] text-neutral-500">{a.dia}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* ABA SERVIÇOS (CRUD) */}
+              {abaAdmin === "servicos" && (
+                <>
+                  <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
+                    <h2 className="text-sm font-bold text-amber-500 uppercase">
+                      ✂️ {servicoEditandoId ? "Alterar Serviço" : "Cadastrar Serviço"}
+                    </h2>
+                    <form onSubmit={salvarServico} className="space-y-2">
+                      <input
+                        type="text"
+                        placeholder="Nome do serviço"
+                        value={servicoNome}
+                        onChange={(e) => setServicoNome(e.target.value)}
+                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                        required
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="Preço (R$)"
+                          value={servicoPreco}
+                          onChange={(e) => setServicoPreco(e.target.value)}
+                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                          required
+                        />
+                        <input
+                          type="number"
+                          placeholder="Duração (min)"
+                          value={servicoDuracao}
+                          onChange={(e) => setServicoDuracao(e.target.value)}
+                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-neutral-400 mb-1 block">Foto do serviço (galeria do celular)</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={lidarComUploadFotoServico}
+                          className="w-full text-xs text-neutral-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-500 file:text-black file:font-bold file:text-xs file:uppercase file:cursor-pointer bg-neutral-950 border border-neutral-800 rounded-lg p-1.5"
+                        />
+                      </div>
+                      {servicoFoto && (
+                        <img
+                          src={servicoFoto || "/placeholder.svg"}
+                          alt="Pré-visualização do serviço"
+                          className="w-full h-28 object-cover rounded-lg border border-neutral-800"
+                        />
+                      )}
+                      <div className="flex gap-2">
+                        {servicoEditandoId && (
+                          <button
+                            type="button"
+                            onClick={limparFormServico}
+                            className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-lg uppercase transition"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+                        <button
+                          type="submit"
+                          className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase tracking-wider transition"
+                        >
+                          {servicoEditandoId ? "Salvar Alterações" : "Cadastrar Serviço"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                    <h2 className="text-sm font-bold text-amber-500 uppercase">Serviços Cadastrados</h2>
+                    {servicos.length === 0 ? (
+                      <p className="text-xs text-neutral-500 text-center py-4">Nenhum serviço cadastrado.</p>
+                    ) : (
+                      servicos.map((s) => (
+                        <div
+                          key={s.id}
+                          className="p-2.5 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center gap-3"
+                        >
+                          <div className="w-12 h-12 bg-neutral-900 rounded-lg border border-neutral-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+                            {s.foto ? (
+                              <img src={s.foto || "/placeholder.svg"} alt={s.nome} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-lg">✂️</span>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <h4 className="font-bold text-white text-xs">{s.nome}</h4>
+                            <p className="text-[10px] text-neutral-400">
+                              R$ {s.preco.toFixed(2)} • {s.duracao} min
+                            </p>
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => editarServico(s)}
+                              className="px-2 py-1 bg-neutral-800 text-neutral-200 rounded text-[10px] hover:bg-neutral-700"
+                            >
+                              Alterar
+                            </button>
+                            <button
+                              onClick={() => excluirServico(s.id)}
+                              className="px-2 py-1 bg-red-950/60 text-red-400 rounded text-[10px] hover:bg-red-900/60"
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* ABA HORÁRIOS DE FUNCIONAMENTO */}
+              {abaAdmin === "horarios" && (
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">🕒 Horário de Funcionamento</h2>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Marque os dias abertos e ajuste os horários de abertura e fechamento.
+                  </p>
+                  {horarios.map((h) => (
+                    <div
+                      key={h.dia}
+                      className={`p-3 rounded-xl border space-y-2 ${
+                        h.aberto ? "bg-neutral-950 border-neutral-800" : "bg-neutral-950/50 border-neutral-800/60"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={`text-xs font-bold ${h.aberto ? "text-white" : "text-neutral-500"}`}>
+                          {h.dia}
+                        </span>
+                        <button
+                          onClick={() => alternarDiaAberto(h.dia)}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition ${
+                            h.aberto
+                              ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                              : "bg-red-500/10 text-red-400 border border-red-500/30"
+                          }`}
+                        >
+                          {h.aberto ? "Aberto" : "Fechado"}
+                        </button>
+                      </div>
+                      {h.aberto && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-neutral-500 block mb-1">Abertura</label>
+                            <input
+                              type="time"
+                              value={h.abertura}
+                              onChange={(e) => atualizarHorarioDia(h.dia, "abertura", e.target.value)}
+                              className="w-full p-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-neutral-500 block mb-1">Fechamento</label>
+                            <input
+                              type="time"
+                              value={h.fechamento}
+                              onChange={(e) => atualizarHorarioDia(h.dia, "fechamento", e.target.value)}
+                              className="w-full p-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ABA CLIENTES */}
+              {abaAdmin === "clientes" && (
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">👥 Clientes</h2>
+                  <input
+                    type="text"
+                    placeholder="Buscar por nome ou apelido..."
+                    value={buscaCliente}
+                    onChange={(e) => setBuscaCliente(e.target.value)}
+                    className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                  />
+                  {clientesFiltrados.length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-4">Nenhum cliente encontrado.</p>
+                  ) : (
+                    clientesFiltrados.map((c) => (
+                      <div
+                        key={c.id}
+                        className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-white text-xs truncate">
+                            {c.nome} <span className="text-neutral-500 font-normal">({c.apelido})</span>
+                          </h4>
+                          <p className="text-[10px] text-neutral-400">📞 {c.telefone}</p>
+                          <p className="text-[10px] text-neutral-400">🎂 {c.nascimento}</p>
+                        </div>
+                        <button
+                          onClick={() => abrirWhatsappCliente(c.telefone, c.nome)}
+                          className="px-3 py-2 bg-green-600 hover:bg-green-500 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition whitespace-nowrap flex-shrink-0"
+                        >
+                          WhatsApp
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* ABA BANNERS */}
+              {abaAdmin === "banners" && (
+              <>
               {/* GERENCIAR BANNERS DO CARROSSEL */}
               <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
                 <h2 className="text-sm font-bold text-amber-500 uppercase">📸 Banners da Tela Inicial</h2>
