@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
+import { Eye, EyeOff } from "lucide-react"
 
 // ==========================================
 // TIPOS E INTERFACES
@@ -86,19 +87,21 @@ export default function BarbeariaHiroschi() {
   ])
   const [fotoAtualIndex, setFotoAtualIndex] = useState(0)
 
+  // Estado do Login Administrativo (senha com mostrar/ocultar)
+  const [mostrarFormAdmin, setMostrarFormAdmin] = useState(false)
+  const [senhaAdmin, setSenhaAdmin] = useState("")
+  const [mostrarSenha, setMostrarSenha] = useState(false)
+  const [erroSenhaAdmin, setErroSenhaAdmin] = useState("")
+
   // Novo Banner Form State (Admin)
   const [novoBannerUrl, setNovoBannerUrl] = useState("")
   const [novoBannerTitulo, setNovoBannerTitulo] = useState("")
+  const [novoBannerArquivo, setNovoBannerArquivo] = useState("")
 
   // Estado do Clube Hiroschi
-  const [usuarioClube] = useState<ClienteClube | null>({
-    id: "user_1",
-    nome: "Tiago Antônio",
-    plano: "Diamante",
-    status: "Ativo",
-    inicio: "24/06/2026",
-    proximaCobranca: "24/07/2026",
-  })
+  // O cliente NÃO é membro por padrão. Só passa a usufruir dos benefícios
+  // após o Proprietário confirmar o pagamento no painel administrativo.
+  const [usuarioClube, setUsuarioClube] = useState<ClienteClube | null>(null)
 
   const [listaMembrosClube, setListaMembrosClube] = useState<ClienteClube[]>([
     {
@@ -117,7 +120,18 @@ export default function BarbeariaHiroschi() {
       inicio: "10/05/2026",
       proximaCobranca: "10/06/2026",
     },
+    {
+      id: "user_3",
+      nome: "Rafael Souza",
+      plano: "Ouro",
+      status: "Pendente",
+      inicio: "-",
+      proximaCobranca: "-",
+    },
   ])
+
+  // Número de WhatsApp da barbearia (formato internacional, sem símbolos)
+  const numeroWhatsappBarbearia = "5511999998888"
 
   // Estado dos Agendamentos
   const [diaSelecionado, setDiaSelecionado] = useState("")
@@ -222,10 +236,79 @@ export default function BarbeariaHiroschi() {
     }
   }
 
-  const loginAdmin = () => {
-    setEstaLogado(true)
-    setEAdmin(true)
-    setTelaAtual("painel")
+  const SENHA_ADMIN = "77186800"
+
+  const validarLoginAdmin = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (senhaAdmin === SENHA_ADMIN) {
+      setEstaLogado(true)
+      setEAdmin(true)
+      setTelaAtual("painel")
+      setSenhaAdmin("")
+      setErroSenhaAdmin("")
+      setMostrarFormAdmin(false)
+    } else {
+      setErroSenhaAdmin("Senha incorreta. Tente novamente.")
+    }
+  }
+
+  // Formata uma data para o padrão DD/MM/AAAA
+  const formatarData = (data: Date) =>
+    data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+
+  // ------------------------------------------
+  // FLUXO DE ASSINATURA DO CLUBE (COM APROVAÇÃO DO ADMIN)
+  // ------------------------------------------
+  const solicitarAssinatura = (plano: ClienteClube["plano"]) => {
+    const idCliente = "user_atual"
+    const nomeCliente = whatsapp ? `Cliente ${whatsapp}` : "Cliente WhatsApp"
+
+    const solicitacao: ClienteClube = {
+      id: idCliente,
+      nome: nomeCliente,
+      plano,
+      status: "Pendente",
+      inicio: "-",
+      proximaCobranca: "-",
+    }
+
+    // Registra/atualiza a solicitação na lista do proprietário
+    setListaMembrosClube((prev) => {
+      const jaExiste = prev.some((m) => m.id === idCliente)
+      if (jaExiste) return prev.map((m) => (m.id === idCliente ? solicitacao : m))
+      return [...prev, solicitacao]
+    })
+
+    // Define o status local do cliente como Pendente (sem benefícios ainda)
+    setUsuarioClube(solicitacao)
+
+    // Redireciona ao WhatsApp da barbearia para confirmação do pagamento
+    const mensagem = encodeURIComponent(
+      `Olá! Quero assinar o Plano ${plano} do Clube Hiroschi. Meu WhatsApp cadastrado: ${whatsapp || "(informar)"}.`,
+    )
+    window.open(`https://wa.me/${numeroWhatsappBarbearia}?text=${mensagem}`, "_blank")
+  }
+
+  // Proprietário confirma o pagamento e ativa o membro
+  const ativarMembro = (id: string) => {
+    const hoje = new Date()
+    const proxima = new Date()
+    proxima.setMonth(proxima.getMonth() + 1)
+
+    setListaMembrosClube((prev) =>
+      prev.map((m) =>
+        m.id === id
+          ? { ...m, status: "Ativo", inicio: formatarData(hoje), proximaCobranca: formatarData(proxima) }
+          : m,
+      ),
+    )
+
+    // Sincroniza o status do cliente logado, caso seja ele
+    setUsuarioClube((prev) =>
+      prev && prev.id === id
+        ? { ...prev, status: "Ativo", inicio: formatarData(hoje), proximaCobranca: formatarData(proxima) }
+        : prev,
+    )
   }
 
   const lidarComSelecaoDeDia = (dia: string) => {
@@ -264,18 +347,32 @@ export default function BarbeariaHiroschi() {
     setTelaAtual("meus_agendamentos")
   }
 
+  // Upload direto da galeria/câmera do celular (converte para base64)
+  const lidarComUploadFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    const leitor = new FileReader()
+    leitor.onload = () => {
+      setNovoBannerArquivo(leitor.result as string)
+    }
+    leitor.readAsDataURL(arquivo)
+  }
+
   const adicionarBanner = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!novoBannerUrl || !novoBannerTitulo) return
+    // Prioriza a foto enviada do celular; senão usa a URL informada
+    const fonteImagem = novoBannerArquivo || novoBannerUrl
+    if (!fonteImagem || !novoBannerTitulo) return
     const novo: BannerFoto = {
       id: Date.now().toString(),
-      url: novoBannerUrl,
+      url: fonteImagem,
       titulo: novoBannerTitulo,
       ordem: fotosBanners.length + 1,
     }
     setFotosBanners([...fotosBanners, novo])
     setNovoBannerUrl("")
     setNovoBannerTitulo("")
+    setNovoBannerArquivo("")
   }
 
   const removerBanner = (id: string) => {
@@ -362,12 +459,65 @@ export default function BarbeariaHiroschi() {
             </form>
 
             <div className="pt-4 border-t border-neutral-800">
-              <button
-                onClick={loginAdmin}
-                className="text-xs text-neutral-500 hover:text-amber-500 transition underline"
-              >
-                Área Administrativa do Proprietário
-              </button>
+              {!mostrarFormAdmin ? (
+                <button
+                  onClick={() => {
+                    setMostrarFormAdmin(true)
+                    setErroSenhaAdmin("")
+                  }}
+                  className="text-xs text-neutral-500 hover:text-amber-500 transition underline"
+                >
+                  Área Administrativa do Proprietário
+                </button>
+              ) : (
+                <form onSubmit={validarLoginAdmin} className="space-y-3 text-left">
+                  <label className="text-xs font-semibold text-neutral-400 mb-1 block">Senha do Proprietário</label>
+                  <div className="relative">
+                    <input
+                      type={mostrarSenha ? "text" : "password"}
+                      placeholder="Digite a senha"
+                      value={senhaAdmin}
+                      onChange={(e) => {
+                        setSenhaAdmin(e.target.value)
+                        setErroSenhaAdmin("")
+                      }}
+                      className="w-full p-3 pr-12 bg-neutral-950 border border-neutral-800 rounded-xl focus:outline-none focus:border-amber-500 text-white placeholder-neutral-600 transition"
+                      required
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMostrarSenha((v) => !v)}
+                      aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-amber-500 transition"
+                    >
+                      {mostrarSenha ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+
+                  {erroSenhaAdmin && <p className="text-[11px] text-red-400">{erroSenhaAdmin}</p>}
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMostrarFormAdmin(false)
+                        setSenhaAdmin("")
+                        setErroSenhaAdmin("")
+                      }}
+                      className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-xl uppercase tracking-wider transition"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl uppercase tracking-wider transition"
+                    >
+                      Entrar
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>
@@ -674,9 +824,17 @@ export default function BarbeariaHiroschi() {
                       <span className="text-green-400 font-bold">● {usuarioClube.status}</span>
                     </div>
                   </div>
+                ) : usuarioClube && usuarioClube.status === "Pendente" ? (
+                  <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl space-y-1">
+                    <p className="text-xs font-bold text-yellow-400">⏳ Solicitação em análise</p>
+                    <p className="text-[11px] text-neutral-300 leading-relaxed">
+                      Recebemos sua solicitação do <strong>Plano {usuarioClube.plano}</strong>. Os benefícios serão
+                      liberados assim que o proprietário confirmar o pagamento pelo WhatsApp.
+                    </p>
+                  </div>
                 ) : (
                   <p className="text-xs text-neutral-400 mt-2">
-                    Assine o clube para garantir cortes ilimitados e descontos exclusivos.
+                    Assine o clube para garantir seus cortes mensais e benefícios exclusivos.
                   </p>
                 )}
               </div>
@@ -685,28 +843,37 @@ export default function BarbeariaHiroschi() {
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-neutral-300">Escolha seu Plano</h3>
 
-                {[
-                  { nome: "Bronze", preco: "R$ 69,90/mês", descricao: "2 Cortes por mês" },
-                  { nome: "Prata", preco: "R$ 89,90/mês", descricao: "Cortes Ilimitados (Terça a Quinta)" },
-                  { nome: "Diamante", preco: "R$ 129,90/mês", descricao: "Cortes & Barba Ilimitados (Terça a Quinta)" },
-                ].map((plano) => (
-                  <div
-                    key={plano.nome}
-                    className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between"
-                  >
-                    <div>
-                      <h4 className="font-bold text-sm text-white">Plano {plano.nome}</h4>
-                      <p className="text-[11px] text-neutral-400">{plano.descricao}</p>
-                      <span className="text-xs text-amber-500 font-bold block mt-1">{plano.preco}</span>
-                    </div>
-                    <button
-                      onClick={() => alert("Redirecionando para o pagamento...")}
-                      className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase"
+                {(
+                  [
+                    { nome: "Bronze", preco: "R$ 49,90/mês", descricao: "2 cortes por mês" },
+                    { nome: "Prata", preco: "R$ 79,90/mês", descricao: "2 cortes + barba" },
+                    { nome: "Ouro", preco: "R$ 99,90/mês", descricao: "4 cortes por mês" },
+                    { nome: "Diamante", preco: "R$ 169,90/mês", descricao: "4 cortes + barba" },
+                  ] as { nome: ClienteClube["plano"]; preco: string; descricao: string }[]
+                ).map((plano) => {
+                  const ehPlanoSolicitado = usuarioClube?.plano === plano.nome
+                  const pendente = ehPlanoSolicitado && usuarioClube?.status === "Pendente"
+                  const ativo = ehPlanoSolicitado && usuarioClube?.status === "Ativo"
+                  return (
+                    <div
+                      key={plano.nome}
+                      className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between gap-3"
                     >
-                      Assinar
-                    </button>
-                  </div>
-                ))}
+                      <div>
+                        <h4 className="font-bold text-sm text-white">Plano {plano.nome}</h4>
+                        <p className="text-[11px] text-neutral-400">{plano.descricao}</p>
+                        <span className="text-xs text-amber-500 font-bold block mt-1">{plano.preco}</span>
+                      </div>
+                      <button
+                        onClick={() => solicitarAssinatura(plano.nome)}
+                        disabled={pendente || ativo}
+                        className="px-3 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold text-xs rounded-lg uppercase whitespace-nowrap transition"
+                      >
+                        {ativo ? "Ativo" : pendente ? "Pendente" : "Assinar"}
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -849,13 +1016,46 @@ export default function BarbeariaHiroschi() {
                 <h2 className="text-sm font-bold text-amber-500 uppercase">📸 Banners da Tela Inicial</h2>
 
                 <form onSubmit={adicionarBanner} className="space-y-2">
+                  {/* Upload direto da galeria/câmera do celular */}
+                  <div>
+                    <label className="text-[11px] text-neutral-400 mb-1 block">Enviar foto do celular</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={lidarComUploadFoto}
+                      className="w-full text-xs text-neutral-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-500 file:text-black file:font-bold file:text-xs file:uppercase file:cursor-pointer bg-neutral-950 border border-neutral-800 rounded-lg p-1.5"
+                    />
+                  </div>
+
+                  {novoBannerArquivo && (
+                    <div className="relative">
+                      <img
+                        src={novoBannerArquivo || "/placeholder.svg"}
+                        alt="Pré-visualização da foto selecionada"
+                        className="w-full h-32 object-cover rounded-lg border border-neutral-800"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setNovoBannerArquivo("")}
+                        className="absolute top-1.5 right-1.5 bg-neutral-950/80 text-red-400 text-[10px] px-2 py-1 rounded-lg border border-neutral-700"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 text-[10px] text-neutral-500 uppercase">
+                    <div className="h-px flex-1 bg-neutral-800" />
+                    <span>ou cole uma URL</span>
+                    <div className="h-px flex-1 bg-neutral-800" />
+                  </div>
+
                   <input
                     type="url"
-                    placeholder="URL da Imagem"
+                    placeholder="URL da Imagem (opcional)"
                     value={novoBannerUrl}
                     onChange={(e) => setNovoBannerUrl(e.target.value)}
                     className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                    required
                   />
                   <input
                     type="text"
@@ -891,12 +1091,59 @@ export default function BarbeariaHiroschi() {
                 </div>
               </div>
 
+              {/* SOLICITAÇÕES PENDENTES DO CLUBE */}
+              <div className="bg-neutral-900 border border-yellow-500/30 p-5 rounded-2xl space-y-4">
+                <h2 className="text-sm font-bold text-yellow-400 uppercase flex items-center justify-between">
+                  <span>⏳ Solicitações Pendentes do Clube</span>
+                  <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
+                    {listaMembrosClube.filter((m) => m.status === "Pendente").length}
+                  </span>
+                </h2>
+
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  O cliente só passa a usufruir dos benefícios do plano após você confirmar o pagamento abaixo.
+                </p>
+
+                <div className="space-y-2">
+                  {listaMembrosClube.filter((m) => m.status === "Pendente").length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-4">Nenhuma solicitação pendente.</p>
+                  ) : (
+                    listaMembrosClube
+                      .filter((m) => m.status === "Pendente")
+                      .map((membro) => (
+                        <div
+                          key={membro.id}
+                          className="p-3 bg-neutral-950 rounded-xl border border-yellow-500/20 text-xs space-y-3"
+                        >
+                          <div>
+                            <h4 className="font-bold text-white">{membro.nome}</h4>
+                            <p className="text-[10px] text-neutral-400">
+                              Plano solicitado: <span className="text-amber-400 font-bold">{membro.plano}</span>
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => ativarMembro(membro.id)}
+                            className="w-full py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold text-xs rounded-lg uppercase tracking-wider transition"
+                          >
+                            Confirmar Pagamento / Ativar Membro
+                          </button>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+
               {/* GERENCIAR MEMBROS DO CLUBE */}
               <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
                 <h2 className="text-sm font-bold text-amber-500 uppercase">💎 Gerenciar Membros do Clube</h2>
 
                 <div className="space-y-2">
-                  {listaMembrosClube.map((membro) => (
+                  {listaMembrosClube.filter((m) => m.status !== "Pendente").length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-4">Nenhum membro ativo no momento.</p>
+                  ) : null}
+                  {listaMembrosClube
+                    .filter((m) => m.status !== "Pendente")
+                    .map((membro) => (
                     <div
                       key={membro.id}
                       className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-xs flex justify-between items-center"
