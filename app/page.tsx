@@ -1758,7 +1758,12 @@ export default function BarbeariaHiroschi() {
                   ))}
                 </div>
               </div>
+              </>
+              )}
 
+              {/* ABA CLUBE */}
+              {abaAdmin === "clube" && (
+              <>
               {/* SOLICITAÇÕES PENDENTES DO CLUBE */}
               <div className="bg-neutral-900 border border-yellow-500/30 p-5 rounded-2xl space-y-4">
                 <h2 className="text-sm font-bold text-yellow-400 uppercase flex items-center justify-between">
@@ -1847,6 +1852,8 @@ export default function BarbeariaHiroschi() {
                   ))}
                 </div>
               </div>
+              </>
+              )}
             </div>
           )}
         </div>
