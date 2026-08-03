@@ -3,14 +3,14 @@
 import React, { useState, useEffect } from "react"
 import { Eye, EyeOff } from "lucide-react"
 
-// ==========================================
-// TIPOS E INTERFACES
-// ==========================================
+// ============================================
+// TIPOS
+// ============================================
 interface ClienteClube {
   id: string
   nome: string
   plano: "Bronze" | "Prata" | "Ouro" | "Diamante"
-  status: "Ativo" | "Suspenso" | "Pendente"
+  status: "Ativo" | "Pendente"
   inicio: string
   proximaCobranca: string
 }
@@ -36,7 +36,9 @@ interface Agendamento {
   servico: string
   dia: string
   horario: string
-  duracao: number // duração total em minutos
+  duracao: number
+  valor: number
+  pagamento: "Pagar no Local" | "PIX" | "Clube Hiroschi"
   eClube: boolean
   planoClube?: string
   eEncaixe?: boolean
@@ -58,15 +60,16 @@ interface Servico {
   id: string
   nome: string
   preco: number
-  duracao: number // em minutos
+  duracao: number
   foto: string
+  longo?: boolean
 }
 
 interface HorarioDia {
   dia: string
   aberto: boolean
-  abertura: string // "HH:MM"
-  fechamento: string // "HH:MM"
+  abertura: string
+  fechamento: string
 }
 
 interface ClienteCadastro {
@@ -74,14 +77,26 @@ interface ClienteCadastro {
   nome: string
   apelido: string
   telefone: string
-  nascimento: string // "DD/MM/AAAA"
+  nascimento: string
 }
 
-// ==========================================
-// COMPONENTE PRINCIPAL
-// ==========================================
+// ============================================
+// CONSTANTES
+// ============================================
+const NUMERO_WHATSAPP_BARBEARIA = "5511999998888"
+const SENHA_ADMIN = "77186800"
+const PLANOS = [
+  { nome: "Bronze" as const, preco: "R$ 49,90/mês", descricao: "2 cortes por mês" },
+  { nome: "Prata" as const, preco: "R$ 79,90/mês", descricao: "2 cortes + barba" },
+  { nome: "Ouro" as const, preco: "R$ 99,90/mês", descricao: "4 cortes por mês" },
+  { nome: "Diamante" as const, preco: "R$ 169,90/mês", descricao: "4 cortes + barba" },
+]
+const DIAS_SEMANA = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
+
 export default function BarbeariaHiroschi() {
-  // Estado de Autenticação e Navegação
+  // ------------------------------------------
+  // AUTENTICAÇÃO / NAVEGAÇÃO
+  // ------------------------------------------
   const [estaLogado, setEstaLogado] = useState(false)
   const [eAdmin, setEAdmin] = useState(false)
   const [whatsapp, setWhatsapp] = useState("")
@@ -89,7 +104,20 @@ export default function BarbeariaHiroschi() {
     "inicial" | "agendamento" | "meus_agendamentos" | "clube" | "produtos" | "painel"
   >("inicial")
 
-  // Estado do Banner Carousel
+  // Login administrativo
+  const [mostrarFormAdmin, setMostrarFormAdmin] = useState(false)
+  const [senhaAdmin, setSenhaAdmin] = useState("")
+  const [mostrarSenha, setMostrarSenha] = useState(false)
+  const [erroSenhaAdmin, setErroSenhaAdmin] = useState("")
+
+  // Abas do painel
+  const [abaAdmin, setAbaAdmin] = useState<
+    "caixa" | "agenda" | "servicos" | "horarios" | "clientes" | "clube" | "banners"
+  >("caixa")
+
+  // ------------------------------------------
+  // BANNERS
+  // ------------------------------------------
   const [fotosBanners, setFotosBanners] = useState<BannerFoto[]>([
     {
       id: "1",
@@ -111,23 +139,14 @@ export default function BarbeariaHiroschi() {
     },
   ])
   const [fotoAtualIndex, setFotoAtualIndex] = useState(0)
-
-  // Estado do Login Administrativo (senha com mostrar/ocultar)
-  const [mostrarFormAdmin, setMostrarFormAdmin] = useState(false)
-  const [senhaAdmin, setSenhaAdmin] = useState("")
-  const [mostrarSenha, setMostrarSenha] = useState(false)
-  const [erroSenhaAdmin, setErroSenhaAdmin] = useState("")
-
-  // Novo Banner Form State (Admin)
   const [novoBannerUrl, setNovoBannerUrl] = useState("")
   const [novoBannerTitulo, setNovoBannerTitulo] = useState("")
   const [novoBannerArquivo, setNovoBannerArquivo] = useState("")
 
-  // Estado do Clube Hiroschi
-  // O cliente NÃO é membro por padrão. Só passa a usufruir dos benefícios
-  // após o Proprietário confirmar o pagamento no painel administrativo.
+  // ------------------------------------------
+  // CLUBE (cliente logado)
+  // ------------------------------------------
   const [usuarioClube, setUsuarioClube] = useState<ClienteClube | null>(null)
-
   const [listaMembrosClube, setListaMembrosClube] = useState<ClienteClube[]>([
     {
       id: "user_1",
@@ -145,23 +164,16 @@ export default function BarbeariaHiroschi() {
       inicio: "10/05/2026",
       proximaCobranca: "10/06/2026",
     },
-    {
-      id: "user_3",
-      nome: "Rafael Souza",
-      plano: "Ouro",
-      status: "Pendente",
-      inicio: "-",
-      proximaCobranca: "-",
-    },
+    { id: "user_3", nome: "Rafael Souza", plano: "Ouro", status: "Pendente", inicio: "-", proximaCobranca: "-" },
   ])
 
-  // Número de WhatsApp da barbearia (formato internacional, sem símbolos)
-  const numeroWhatsappBarbearia = "5511999998888"
-
-  // Estado dos Agendamentos
+  // ------------------------------------------
+  // AGENDAMENTO
+  // ------------------------------------------
   const [diaSelecionado, setDiaSelecionado] = useState("")
   const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([])
   const [horarioSelecionado, setHorarioSelecionado] = useState("")
+  const [formaPagamento, setFormaPagamento] = useState<"Pagar no Local" | "PIX" | "">("")
   const [erroAgendamento, setErroAgendamento] = useState("")
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([
     {
@@ -171,6 +183,8 @@ export default function BarbeariaHiroschi() {
       dia: "Quarta",
       horario: "14:00",
       duracao: 30,
+      valor: 35,
+      pagamento: "Clube Hiroschi",
       eClube: true,
       planoClube: "Diamante",
     },
@@ -181,11 +195,15 @@ export default function BarbeariaHiroschi() {
       dia: "Sábado",
       horario: "10:00",
       duracao: 45,
+      valor: 60,
+      pagamento: "Pagar no Local",
       eClube: false,
     },
   ])
 
-  // Estado dos Produtos
+  // ------------------------------------------
+  // PRODUTOS
+  // ------------------------------------------
   const [produtos] = useState<Produto[]>([
     {
       id: "p1",
@@ -203,37 +221,40 @@ export default function BarbeariaHiroschi() {
     },
   ])
 
-  // Aba ativa do Painel Administrativo
-  const [abaAdmin, setAbaAdmin] = useState<
-    "caixa" | "agenda" | "servicos" | "horarios" | "clientes" | "clube" | "banners"
-  >("caixa")
-
-  // Estado dos Serviços (CRUD)
+  // ------------------------------------------
+  // SERVIÇOS (CRUD)
+  // ------------------------------------------
   const [servicos, setServicos] = useState<Servico[]>([
     { id: "s1", nome: "Corte de Cabelo", preco: 35, duracao: 30, foto: "" },
     { id: "s2", nome: "Barba Completa", preco: 30, duracao: 20, foto: "" },
     { id: "s3", nome: "Corte + Barba", preco: 60, duracao: 45, foto: "" },
     { id: "s4", nome: "Sobrancelha", preco: 15, duracao: 10, foto: "" },
+    { id: "s5", nome: "Reflexo", preco: 120, duracao: 120, foto: "", longo: true },
+    { id: "s6", nome: "Descoloração", preco: 150, duracao: 150, foto: "", longo: true },
   ])
-  // Formulário de Serviço (cadastro/edição)
   const [servicoEditandoId, setServicoEditandoId] = useState<string | null>(null)
   const [servicoNome, setServicoNome] = useState("")
   const [servicoPreco, setServicoPreco] = useState("")
   const [servicoDuracao, setServicoDuracao] = useState("")
   const [servicoFoto, setServicoFoto] = useState("")
+  const [servicoLongo, setServicoLongo] = useState(false)
 
-  // Estado dos Horários de Funcionamento
+  // ------------------------------------------
+  // HORÁRIOS DE FUNCIONAMENTO
+  // ------------------------------------------
   const [horarios, setHorarios] = useState<HorarioDia[]>([
-    { dia: "Domingo", aberto: false, abertura: "09:00", fechamento: "18:00" },
+    { dia: "Domingo", aberto: false, abertura: "09:00", fechamento: "19:00" },
     { dia: "Segunda", aberto: false, abertura: "09:00", fechamento: "19:00" },
     { dia: "Terça", aberto: true, abertura: "09:00", fechamento: "19:00" },
     { dia: "Quarta", aberto: true, abertura: "09:00", fechamento: "19:00" },
     { dia: "Quinta", aberto: true, abertura: "09:00", fechamento: "19:00" },
-    { dia: "Sexta", aberto: true, abertura: "09:00", fechamento: "20:00" },
-    { dia: "Sábado", aberto: true, abertura: "08:00", fechamento: "18:00" },
+    { dia: "Sexta", aberto: true, abertura: "09:00", fechamento: "19:00" },
+    { dia: "Sábado", aberto: true, abertura: "09:00", fechamento: "19:00" },
   ])
 
-  // Estado dos Clientes (cadastro)
+  // ------------------------------------------
+  // CLIENTES
+  // ------------------------------------------
   const [clientesCadastrados] = useState<ClienteCadastro[]>([
     { id: "cl1", nome: "Tiago Antônio", apelido: "Tiaguinho", telefone: "11999998888", nascimento: "15/03/1990" },
     { id: "cl2", nome: "João Silva", apelido: "João", telefone: "11988887777", nascimento: "22/07/1985" },
@@ -242,21 +263,25 @@ export default function BarbeariaHiroschi() {
   ])
   const [buscaCliente, setBuscaCliente] = useState("")
 
-  // Formulário de Encaixe Manual (Agenda)
+  // ------------------------------------------
+  // ENCAIXE MANUAL
+  // ------------------------------------------
   const [encaixeCliente, setEncaixeCliente] = useState("")
   const [encaixeServico, setEncaixeServico] = useState("")
   const [encaixeDia, setEncaixeDia] = useState("Terça")
   const [encaixeHorario, setEncaixeHorario] = useState("")
 
-  // Estado do Caixa Financeiro
+  // ------------------------------------------
+  // CAIXA
+  // ------------------------------------------
   const [historicoCaixa, setHistoricoCaixa] = useState<MovimentacaoCaixa[]>([
     {
       id: "c1",
       cliente: "João Silva",
       servico: "Corte + Barba",
-      valorBruto: 65,
-      desconto: 10,
-      valorPago: 55,
+      valorBruto: 60,
+      desconto: 0,
+      valorPago: 60,
       metodo: "PIX",
       eClube: false,
       data: "Hoje",
@@ -284,18 +309,14 @@ export default function BarbeariaHiroschi() {
       data: "Hoje",
     },
   ])
-
-  // Formulário de Fechamento de Caixa (Admin)
   const [caixaCliente, setCaixaCliente] = useState("")
-  const [caixaServico] = useState("Corte")
-  const [caixaValor, setCaixaValor] = useState("35")
-  const [caixaDesconto, setCaixaDesconto] = useState("0")
-  const [caixaMetodo, setCaixaMetodo] = useState<"PIX" | "Cartão" | "Dinheiro">("PIX")
-  const [caixaEClube, setCaixaEClube] = useState(false)
+  const [caixaServico, setCaixaServico] = useState("")
+  const [caixaValor, setCaixaValor] = useState("")
+  const [caixaMetodo, setCaixaMetodo] = useState<MovimentacaoCaixa["metodo"]>("PIX")
 
-  // ------------------------------------------
-  // CARROSSEL AUTOMÁTICO (5 SEGUNDOS)
-  // ------------------------------------------
+  // ============================================
+  // CARROSSEL AUTOMÁTICO
+  // ============================================
   useEffect(() => {
     if (fotosBanners.length === 0 || !estaLogado || telaAtual !== "inicial") return
     const interval = setInterval(() => {
@@ -304,19 +325,75 @@ export default function BarbeariaHiroschi() {
     return () => clearInterval(interval)
   }, [fotosBanners, estaLogado, telaAtual])
 
-  // ------------------------------------------
-  // LÓGICAS E MÉTODOS
-  // ------------------------------------------
+  // ============================================
+  // HELPERS DE HORÁRIO
+  // ============================================
+  const horaParaMinutos = (hora: string) => {
+    const [h, m] = hora.split(":").map(Number)
+    return h * 60 + m
+  }
+  const minutosParaHora = (min: number) =>
+    `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`
+
+  const nomeDiaHoje = DIAS_SEMANA[new Date().getDay()]
+
+  const duracaoTotalSelecionada = servicosSelecionados.reduce(
+    (acc, id) => acc + (servicos.find((s) => s.id === id)?.duracao || 0),
+    0,
+  )
+  const precoTotalSelecionado = servicosSelecionados.reduce(
+    (acc, id) => acc + (servicos.find((s) => s.id === id)?.preco || 0),
+    0,
+  )
+  const temServicoLongoSelecionado = servicosSelecionados.some((id) => servicos.find((s) => s.id === id)?.longo)
+
+  // Gera horários livres respeitando funcionamento, duração, trava de 6h e trava de serviço longo (16:00)
+  const gerarHorariosDisponiveis = (dia: string, duracao: number, ignorarTravas = false) => {
+    const config = horarios.find((h) => h.dia === dia)
+    if (!config || !config.aberto || duracao <= 0) return []
+
+    const inicio = horaParaMinutos(config.abertura)
+    const fim = horaParaMinutos(config.fechamento)
+    const ocupados = agendamentos.filter((a) => a.dia === dia)
+    const slots: string[] = []
+
+    const agora = new Date()
+    const minutosAgora = agora.getHours() * 60 + agora.getMinutes()
+    const ehHoje = dia === nomeDiaHoje
+
+    for (let t = inicio; t + duracao <= fim; t += 15) {
+      // Conflito com agendamentos existentes (o próximo horário só abre após o término do anterior)
+      const conflito = ocupados.some((a) => {
+        const aInicio = horaParaMinutos(a.horario)
+        const aFim = aInicio + (a.duracao || 30)
+        return t < aFim && t + duracao > aInicio
+      })
+      if (conflito) continue
+
+      if (!ignorarTravas) {
+        // Trava de 6 horas para agendamentos no mesmo dia
+        if (ehHoje && t < minutosAgora + 360) continue
+        // Trava de serviço longo (Reflexo / Descoloração): só até 16:00
+        if (temServicoLongoSelecionado && t >= 16 * 60) continue
+      }
+      slots.push(minutosParaHora(t))
+    }
+    return slots
+  }
+
+  // ============================================
+  // AUTENTICAÇÃO
+  // ============================================
   const lidarComLogin = (e: React.FormEvent) => {
     e.preventDefault()
     if (whatsapp.trim().length >= 8) {
       setEstaLogado(true)
       setEAdmin(false)
+      const membro = listaMembrosClube.find((m) => m.id === `user_${whatsapp}`)
+      setUsuarioClube(membro || null)
       setTelaAtual("inicial")
     }
   }
-
-  const SENHA_ADMIN = "77186800"
 
   const validarLoginAdmin = (e: React.FormEvent) => {
     e.preventDefault()
@@ -332,208 +409,135 @@ export default function BarbeariaHiroschi() {
     }
   }
 
-  // Formata uma data para o padrão DD/MM/AAAA
+  const sair = () => {
+    setEstaLogado(false)
+    setEAdmin(false)
+    setWhatsapp("")
+    setUsuarioClube(null)
+    setTelaAtual("inicial")
+  }
+
   const formatarData = (data: Date) =>
     data.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
 
-  // ------------------------------------------
-  // FLUXO DE ASSINATURA DO CLUBE (COM APROVAÇÃO DO ADMIN)
-  // ------------------------------------------
+  // ============================================
+  // CLUBE — ASSINATURA E APROVAÇÃO MANUAL
+  // ============================================
   const solicitarAssinatura = (plano: ClienteClube["plano"]) => {
-    const idCliente = "user_atual"
-    const nomeCliente = whatsapp ? `Cliente ${whatsapp}` : "Cliente WhatsApp"
-
+    const idCliente = `user_${whatsapp || "atual"}`
     const solicitacao: ClienteClube = {
       id: idCliente,
-      nome: nomeCliente,
+      nome: whatsapp ? `Cliente ${whatsapp}` : "Cliente WhatsApp",
       plano,
       status: "Pendente",
       inicio: "-",
       proximaCobranca: "-",
     }
-
-    // Registra/atualiza a solicitação na lista do proprietário
     setListaMembrosClube((prev) => {
-      const jaExiste = prev.some((m) => m.id === idCliente)
-      if (jaExiste) return prev.map((m) => (m.id === idCliente ? solicitacao : m))
-      return [...prev, solicitacao]
+      const existe = prev.some((m) => m.id === idCliente)
+      return existe ? prev.map((m) => (m.id === idCliente ? solicitacao : m)) : [...prev, solicitacao]
     })
-
-    // Define o status local do cliente como Pendente (sem benefícios ainda)
     setUsuarioClube(solicitacao)
-
-    // Redireciona ao WhatsApp da barbearia para confirmação do pagamento
-    const mensagem = encodeURIComponent(
-      `Olá! Quero assinar o Plano ${plano} do Clube Hiroschi. Meu WhatsApp cadastrado: ${whatsapp || "(informar)"}.`,
+    const msg = encodeURIComponent(
+      `Olá! Quero assinar o Plano ${plano} do Clube Hiroschi. Meu WhatsApp: ${whatsapp || "(informar)"}.`,
     )
-    window.open(`https://wa.me/${numeroWhatsappBarbearia}?text=${mensagem}`, "_blank")
+    window.open(`https://wa.me/${NUMERO_WHATSAPP_BARBEARIA}?text=${msg}`, "_blank")
   }
 
-  // Proprietário confirma o pagamento e ativa o membro
   const ativarMembro = (id: string) => {
     const hoje = new Date()
     const proxima = new Date()
     proxima.setMonth(proxima.getMonth() + 1)
-
-    setListaMembrosClube((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? { ...m, status: "Ativo", inicio: formatarData(hoje), proximaCobranca: formatarData(proxima) }
-          : m,
-      ),
-    )
-
-    // Sincroniza o status do cliente logado, caso seja ele
-    setUsuarioClube((prev) =>
-      prev && prev.id === id
-        ? { ...prev, status: "Ativo", inicio: formatarData(hoje), proximaCobranca: formatarData(proxima) }
-        : prev,
-    )
+    const atualizar = (m: ClienteClube): ClienteClube =>
+      m.id === id
+        ? { ...m, status: "Ativo", inicio: formatarData(hoje), proximaCobranca: formatarData(proxima) }
+        : m
+    setListaMembrosClube((prev) => prev.map(atualizar))
+    setUsuarioClube((prev) => (prev && prev.id === id ? atualizar(prev) : prev))
   }
 
-  // ------------------------------------------
-  // HELPERS DE HORÁRIO
-  // ------------------------------------------
-  const horaParaMinutos = (hora: string) => {
-    const [h, m] = hora.split(":").map(Number)
-    return h * 60 + m
-  }
-  const minutosParaHora = (min: number) => {
-    const h = Math.floor(min / 60)
-    const m = min % 60
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
-  }
-
-  // Duração total dos serviços escolhidos (em minutos)
-  const duracaoTotalSelecionada = servicosSelecionados.reduce((acc, id) => {
-    const s = servicos.find((sv) => sv.id === id)
-    return acc + (s ? s.duracao : 0)
-  }, 0)
-
-  // Preço total dos serviços escolhidos
-  const precoTotalSelecionado = servicosSelecionados.reduce((acc, id) => {
-    const s = servicos.find((sv) => sv.id === id)
-    return acc + (s ? s.preco : 0)
-  }, 0)
-
-  // Gera os horários disponíveis para o dia, respeitando o funcionamento
-  // e a duração total: o próximo horário só abre após o término do anterior.
-  const gerarHorariosDisponiveis = (dia: string, duracao: number) => {
-    const config = horarios.find((h) => h.dia === dia)
-    if (!config || !config.aberto || duracao <= 0) return []
-
-    const inicio = horaParaMinutos(config.abertura)
-    const fim = horaParaMinutos(config.fechamento)
-    const ocupados = agendamentos.filter((a) => a.dia === dia)
-    const slots: string[] = []
-
-    for (let t = inicio; t + duracao <= fim; t += 15) {
-      const conflito = ocupados.some((a) => {
-        const aInicio = horaParaMinutos(a.horario)
-        const aFim = aInicio + (a.duracao || 30)
-        return t < aFim && t + duracao > aInicio
-      })
-      if (!conflito) slots.push(minutosParaHora(t))
-    }
-    return slots
-  }
+  // ============================================
+  // AGENDAMENTO — CLIENTE
+  // ============================================
+  const clubeAtivo = !!(usuarioClube && usuarioClube.status === "Ativo")
 
   const alternarServicoSelecionado = (id: string) => {
     setHorarioSelecionado("")
-    setServicosSelecionados((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
-    )
+    setFormaPagamento("")
+    setServicosSelecionados((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
   }
 
   const lidarComSelecaoDeDia = (dia: string) => {
     setDiaSelecionado(dia)
     setHorarioSelecionado("")
+    setFormaPagamento("")
     setErroAgendamento("")
-
-    // Regra de Restrição do Clube
-    if (usuarioClube && usuarioClube.status === "Ativo") {
-      if (dia === "Sexta" || dia === "Sábado") {
-        setErroAgendamento(
-          "Clientes do Clube Hiroschi realizam seus agendamentos de terça a quinta-feira, conforme as regras do plano.",
-        )
-      }
+    if (clubeAtivo && (dia === "Sexta" || dia === "Sábado")) {
+      setErroAgendamento(
+        "Nas sextas e sábados o Clube Hiroschi não cobre o atendimento. Você pode agendar, mas será cobrado por fora como cliente avulso.",
+      )
     }
   }
 
+  // Nesse dia o atendimento é isento pelo clube? (Membro ativo + Terça a Quinta)
+  const isentoPeloClube = clubeAtivo && ["Terça", "Quarta", "Quinta"].includes(diaSelecionado)
+
   const confirmarAgendamento = () => {
-    if (servicosSelecionados.length === 0) {
-      alert("Selecione ao menos um serviço.")
-      return
-    }
-    if (!diaSelecionado) {
-      alert("Por favor, selecione um dia.")
-      return
-    }
-    if (erroAgendamento) return
-    if (!horarioSelecionado) {
-      alert("Selecione um horário disponível.")
-      return
-    }
+    if (servicosSelecionados.length === 0) return alert("Selecione ao menos um serviço.")
+    if (!diaSelecionado) return alert("Selecione um dia.")
+    if (!horarioSelecionado) return alert("Selecione um horário disponível.")
+    if (!isentoPeloClube && !formaPagamento) return alert("Escolha a forma de pagamento.")
 
     const nomesServicos = servicosSelecionados
       .map((id) => servicos.find((s) => s.id === id)?.nome)
       .filter(Boolean)
       .join(" + ")
 
+    const nomeCliente = whatsapp ? `Cliente ${whatsapp}` : "Cliente WhatsApp"
+    const pagamento: Agendamento["pagamento"] = isentoPeloClube
+      ? "Clube Hiroschi"
+      : formaPagamento === "PIX"
+        ? "PIX"
+        : "Pagar no Local"
+
     const novo: Agendamento = {
       id: Date.now().toString(),
-      clienteNome: usuarioClube?.nome || "Cliente WhatsApp",
+      clienteNome: nomeCliente,
       servico: nomesServicos,
       dia: diaSelecionado,
       horario: horarioSelecionado,
       duracao: duracaoTotalSelecionada,
-      eClube: !!(usuarioClube && usuarioClube.status === "Ativo"),
+      valor: isentoPeloClube ? 0 : precoTotalSelecionado,
+      pagamento,
+      eClube: isentoPeloClube,
       planoClube: usuarioClube?.plano,
     }
+    setAgendamentos((prev) => [...prev, novo])
 
-    setAgendamentos([...agendamentos, novo])
+    // Resumo para o WhatsApp do barbeiro
+    const resumo = encodeURIComponent(
+      `*Novo Agendamento - Barbearia Hiroschi*\n` +
+        `Cliente: ${nomeCliente}\n` +
+        `Dia: ${diaSelecionado}\n` +
+        `Horário: ${horarioSelecionado}\n` +
+        `Serviços: ${nomesServicos}\n` +
+        `Duração: ${duracaoTotalSelecionada} min\n` +
+        `Valor: ${isentoPeloClube ? "Isento (Clube Hiroschi)" : `R$ ${precoTotalSelecionado.toFixed(2)}`}\n` +
+        `Pagamento: ${pagamento}`,
+    )
+    window.open(`https://wa.me/${NUMERO_WHATSAPP_BARBEARIA}?text=${resumo}`, "_blank")
+
     alert("Agendamento efetuado com sucesso!")
     setServicosSelecionados([])
-    setHorarioSelecionado("")
     setDiaSelecionado("")
+    setHorarioSelecionado("")
+    setFormaPagamento("")
     setTelaAtual("meus_agendamentos")
   }
 
-  // Upload direto da galeria/câmera do celular (converte para base64)
-  const lidarComUploadFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const arquivo = e.target.files?.[0]
-    if (!arquivo) return
-    const leitor = new FileReader()
-    leitor.onload = () => {
-      setNovoBannerArquivo(leitor.result as string)
-    }
-    leitor.readAsDataURL(arquivo)
-  }
-
-  const adicionarBanner = (e: React.FormEvent) => {
-    e.preventDefault()
-    // Prioriza a foto enviada do celular; senão usa a URL informada
-    const fonteImagem = novoBannerArquivo || novoBannerUrl
-    if (!fonteImagem || !novoBannerTitulo) return
-    const novo: BannerFoto = {
-      id: Date.now().toString(),
-      url: fonteImagem,
-      titulo: novoBannerTitulo,
-      ordem: fotosBanners.length + 1,
-    }
-    setFotosBanners([...fotosBanners, novo])
-    setNovoBannerUrl("")
-    setNovoBannerTitulo("")
-    setNovoBannerArquivo("")
-  }
-
-  const removerBanner = (id: string) => {
-    setFotosBanners(fotosBanners.filter((b) => b.id !== id))
-  }
-
-  // ------------------------------------------
+  // ============================================
   // SERVIÇOS (CRUD)
-  // ------------------------------------------
+  // ============================================
   const lidarComUploadFotoServico = (e: React.ChangeEvent<HTMLInputElement>) => {
     const arquivo = e.target.files?.[0]
     if (!arquivo) return
@@ -541,435 +545,344 @@ export default function BarbeariaHiroschi() {
     leitor.onload = () => setServicoFoto(leitor.result as string)
     leitor.readAsDataURL(arquivo)
   }
-
   const limparFormServico = () => {
     setServicoEditandoId(null)
     setServicoNome("")
     setServicoPreco("")
     setServicoDuracao("")
     setServicoFoto("")
+    setServicoLongo(false)
   }
-
   const salvarServico = (e: React.FormEvent) => {
     e.preventDefault()
     const preco = Number.parseFloat(servicoPreco) || 0
     const duracao = Number.parseInt(servicoDuracao) || 0
     if (!servicoNome || duracao <= 0) return
-
     if (servicoEditandoId) {
-      // Alterar serviço existente
       setServicos((prev) =>
         prev.map((s) =>
-          s.id === servicoEditandoId ? { ...s, nome: servicoNome, preco, duracao, foto: servicoFoto } : s,
+          s.id === servicoEditandoId
+            ? { ...s, nome: servicoNome, preco, duracao, foto: servicoFoto, longo: servicoLongo }
+            : s,
         ),
       )
     } else {
-      // Cadastrar novo serviço
-      const novo: Servico = { id: Date.now().toString(), nome: servicoNome, preco, duracao, foto: servicoFoto }
-      setServicos((prev) => [...prev, novo])
+      setServicos((prev) => [
+        ...prev,
+        { id: Date.now().toString(), nome: servicoNome, preco, duracao, foto: servicoFoto, longo: servicoLongo },
+      ])
     }
     limparFormServico()
   }
-
   const editarServico = (s: Servico) => {
     setServicoEditandoId(s.id)
     setServicoNome(s.nome)
     setServicoPreco(String(s.preco))
     setServicoDuracao(String(s.duracao))
     setServicoFoto(s.foto)
+    setServicoLongo(!!s.longo)
   }
-
   const excluirServico = (id: string) => {
     setServicos((prev) => prev.filter((s) => s.id !== id))
     if (servicoEditandoId === id) limparFormServico()
   }
 
-  // ------------------------------------------
-  // HORÁRIOS DE FUNCIONAMENTO
-  // ------------------------------------------
-  const alternarDiaAberto = (dia: string) => {
+  // ============================================
+  // HORÁRIOS
+  // ============================================
+  const alternarDiaAberto = (dia: string) =>
     setHorarios((prev) => prev.map((h) => (h.dia === dia ? { ...h, aberto: !h.aberto } : h)))
-  }
-  const atualizarHorarioDia = (dia: string, campo: "abertura" | "fechamento", valor: string) => {
+  const atualizarHorarioDia = (dia: string, campo: "abertura" | "fechamento", valor: string) =>
     setHorarios((prev) => prev.map((h) => (h.dia === dia ? { ...h, [campo]: valor } : h)))
-  }
 
-  // ------------------------------------------
+  // ============================================
   // CLIENTES
-  // ------------------------------------------
+  // ============================================
   const clientesFiltrados = clientesCadastrados.filter((c) => {
     const termo = buscaCliente.trim().toLowerCase()
     if (!termo) return true
     return c.nome.toLowerCase().includes(termo) || c.apelido.toLowerCase().includes(termo)
   })
-
   const abrirWhatsappCliente = (telefone: string, nome: string) => {
     const numero = telefone.replace(/\D/g, "")
-    const numeroCompleto = numero.startsWith("55") ? numero : `55${numero}`
-    const mensagem = encodeURIComponent(`Olá ${nome.split(" ")[0]}, aqui é da Barbearia Hiroschi! `)
-    window.open(`https://wa.me/${numeroCompleto}?text=${mensagem}`, "_blank")
+    const completo = numero.startsWith("55") ? numero : `55${numero}`
+    const msg = encodeURIComponent(`Olá ${nome.split(" ")[0]}, aqui é da Barbearia Hiroschi! `)
+    window.open(`https://wa.me/${completo}?text=${msg}`, "_blank")
   }
 
-  // ------------------------------------------
-  // ENCAIXE MANUAL (ignora a trava de 6 horas)
-  // ------------------------------------------
+  // ============================================
+  // ENCAIXE (ignora trava de 6h)
+  // ============================================
   const criarEncaixe = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!encaixeCliente || !encaixeHorario) {
-      alert("Informe o cliente e o horário do encaixe.")
-      return
-    }
-    const servicoInfo = servicos.find((s) => s.id === encaixeServico)
-    const novo: Agendamento = {
-      id: Date.now().toString(),
-      clienteNome: encaixeCliente,
-      servico: servicoInfo ? servicoInfo.nome : "Encaixe",
-      dia: encaixeDia,
-      horario: encaixeHorario,
-      duracao: servicoInfo ? servicoInfo.duracao : 30,
-      eClube: false,
-      eEncaixe: true,
-    }
-    // Encaixe é criado diretamente, ignorando a trava de antecedência de 6 horas
-    setAgendamentos((prev) => [...prev, novo])
+    if (!encaixeCliente || !encaixeHorario) return alert("Informe o cliente e o horário do encaixe.")
+    const info = servicos.find((s) => s.id === encaixeServico)
+    setAgendamentos((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        clienteNome: encaixeCliente,
+        servico: info ? info.nome : "Encaixe",
+        dia: encaixeDia,
+        horario: encaixeHorario,
+        duracao: info ? info.duracao : 30,
+        valor: info ? info.preco : 0,
+        pagamento: "Pagar no Local",
+        eClube: false,
+        eEncaixe: true,
+      },
+    ])
     setEncaixeCliente("")
     setEncaixeServico("")
     setEncaixeHorario("")
     alert("Encaixe adicionado à agenda!")
   }
 
-  const lancarCaixa = (e: React.FormEvent) => {
+  // ============================================
+  // CAIXA
+  // ============================================
+  const registrarCaixa = (e: React.FormEvent) => {
     e.preventDefault()
-    const bruto = Number.parseFloat(caixaValor) || 0
-    const desc = Number.parseFloat(caixaDesconto) || 0
-    const pago = caixaEClube ? 0 : Math.max(0, bruto - desc)
-
-    const novaMovimentacao: MovimentacaoCaixa = {
-      id: Date.now().toString(),
-      cliente: caixaCliente,
-      servico: caixaServico,
-      valorBruto: bruto,
-      desconto: desc,
-      valorPago: pago,
-      metodo: caixaEClube ? "Clube Hiroschi" : caixaMetodo,
-      eClube: caixaEClube,
-      data: "Hoje",
-    }
-
-    setHistoricoCaixa([novaMovimentacao, ...historicoCaixa])
+    const valor = Number.parseFloat(caixaValor) || 0
+    if (!caixaCliente || !caixaServico) return
+    const eClube = caixaMetodo === "Clube Hiroschi"
+    setHistoricoCaixa((prev) => [
+      {
+        id: Date.now().toString(),
+        cliente: caixaCliente,
+        servico: caixaServico,
+        valorBruto: valor,
+        desconto: eClube ? valor : 0,
+        valorPago: eClube ? 0 : valor,
+        metodo: caixaMetodo,
+        eClube,
+        data: "Hoje",
+      },
+      ...prev,
+    ])
     setCaixaCliente("")
-    setCaixaValor("35")
-    setCaixaDesconto("0")
-    setCaixaEClube(false)
-    alert("Atendimento finalizado e gravado no caixa!")
+    setCaixaServico("")
+    setCaixaValor("")
+    setCaixaMetodo("PIX")
   }
 
-  // Cálculos do Caixa Inteligente
-  const faturamentoTotal = historicoCaixa.filter((h) => !h.eClube).reduce((acc, h) => acc + h.valorPago, 0)
+  const totalPix = historicoCaixa.filter((m) => m.metodo === "PIX").reduce((a, m) => a + m.valorPago, 0)
+  const totalCartao = historicoCaixa.filter((m) => m.metodo === "Cartão").reduce((a, m) => a + m.valorPago, 0)
+  const totalDinheiro = historicoCaixa.filter((m) => m.metodo === "Dinheiro").reduce((a, m) => a + m.valorPago, 0)
+  const faturamentoReal = totalPix + totalCartao + totalDinheiro
+  const cobertoClube = historicoCaixa.filter((m) => m.eClube).reduce((a, m) => a + m.valorBruto, 0)
 
-  const faturamentoPix = historicoCaixa
-    .filter((h) => h.metodo === "PIX" && !h.eClube)
-    .reduce((acc, h) => acc + h.valorPago, 0)
+  // ============================================
+  // BANNERS
+  // ============================================
+  const lidarComUploadFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const arquivo = e.target.files?.[0]
+    if (!arquivo) return
+    const leitor = new FileReader()
+    leitor.onload = () => setNovoBannerArquivo(leitor.result as string)
+    leitor.readAsDataURL(arquivo)
+  }
+  const adicionarBanner = (e: React.FormEvent) => {
+    e.preventDefault()
+    const fonte = novoBannerArquivo || novoBannerUrl
+    if (!fonte || !novoBannerTitulo) return
+    setFotosBanners((prev) => [
+      ...prev,
+      { id: Date.now().toString(), url: fonte, titulo: novoBannerTitulo, ordem: prev.length + 1 },
+    ])
+    setNovoBannerUrl("")
+    setNovoBannerTitulo("")
+    setNovoBannerArquivo("")
+  }
+  const removerBanner = (id: string) => setFotosBanners((prev) => prev.filter((b) => b.id !== id))
 
-  const faturamentoCartao = historicoCaixa
-    .filter((h) => h.metodo === "Cartão" && !h.eClube)
-    .reduce((acc, h) => acc + h.valorPago, 0)
+  // ============================================
+  // RENDER — LOGIN
+  // ============================================
+  if (!estaLogado) {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center px-6">
+        <div className="w-full max-w-sm space-y-6 text-center">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-black tracking-tight text-amber-500">Barbearia Hiroschi</h1>
+            <p className="text-sm text-neutral-400">Agendamento & Clube Hiroschi</p>
+          </div>
 
-  const faturamentoDinheiro = historicoCaixa
-    .filter((h) => h.metodo === "Dinheiro" && !h.eClube)
-    .reduce((acc, h) => acc + h.valorPago, 0)
+          <form onSubmit={lidarComLogin} className="space-y-3 text-left">
+            <label className="text-xs font-semibold text-neutral-400 block">Número do WhatsApp</label>
+            <input
+              type="tel"
+              inputMode="numeric"
+              placeholder="(00) 99999-9999"
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              className="w-full p-3 bg-neutral-900 border border-neutral-800 rounded-xl focus:outline-none focus:border-amber-500 text-white placeholder-neutral-600 transition"
+              required
+            />
+            <button
+              type="submit"
+              className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-xl uppercase tracking-wider transition"
+            >
+              Acessar Agendamento
+            </button>
+          </form>
 
-  const valorTotalIsentoClube = historicoCaixa.filter((h) => h.eClube).reduce((acc, h) => acc + h.valorBruto, 0)
-
-  // ==========================================
-  // RENDERIZAÇÃO
-  // ==========================================
-  return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans flex flex-col items-center justify-start p-2 sm:p-4">
-      {/* TELA DE LOGIN / AUTENTICAÇÃO */}
-      {!estaLogado && (
-        <div className="w-full max-w-md flex flex-col items-center justify-center min-h-[90vh] space-y-6">
-          <div className="w-full bg-neutral-900 border border-neutral-800 p-6 sm:p-8 rounded-3xl shadow-2xl text-center space-y-6">
-            <div className="flex flex-col items-center space-y-2">
-              <span className="text-4xl">💈</span>
-              <h1 className="text-2xl font-black uppercase tracking-wider text-amber-500">Barbearia Hiroschi</h1>
-              <p className="text-xs text-neutral-400">Seu próximo corte está a poucos cliques.</p>
-            </div>
-
-            <form onSubmit={lidarComLogin} className="space-y-4 text-left">
-              <div>
-                <label className="text-xs font-semibold text-neutral-400 mb-1 block">Número do WhatsApp</label>
-                <input
-                  type="tel"
-                  placeholder="(00) 99999-9999"
-                  value={whatsapp}
-                  onChange={(e) => setWhatsapp(e.target.value)}
-                  className="w-full p-4 bg-neutral-950 border border-neutral-800 rounded-xl focus:outline-none focus:border-amber-500 text-white placeholder-neutral-600 transition"
-                  required
-                />
-              </div>
-
+          <div className="pt-4 border-t border-neutral-800">
+            {!mostrarFormAdmin ? (
               <button
-                type="submit"
-                className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-extrabold rounded-xl uppercase tracking-wider transition shadow-lg shadow-amber-500/10 active:scale-[0.98]"
+                onClick={() => {
+                  setMostrarFormAdmin(true)
+                  setErroSenhaAdmin("")
+                }}
+                className="text-xs text-neutral-500 hover:text-amber-500 transition underline"
               >
-                Acessar Agendamento
+                Área Administrativa do Proprietário
               </button>
-            </form>
-
-            <div className="pt-4 border-t border-neutral-800">
-              {!mostrarFormAdmin ? (
-                <button
-                  onClick={() => {
-                    setMostrarFormAdmin(true)
-                    setErroSenhaAdmin("")
-                  }}
-                  className="text-xs text-neutral-500 hover:text-amber-500 transition underline"
-                >
-                  Área Administrativa do Proprietário
-                </button>
-              ) : (
-                <form onSubmit={validarLoginAdmin} className="space-y-3 text-left">
-                  <label className="text-xs font-semibold text-neutral-400 mb-1 block">Senha do Proprietário</label>
-                  <div className="relative">
-                    <input
-                      type={mostrarSenha ? "text" : "password"}
-                      placeholder="Digite a senha"
-                      value={senhaAdmin}
-                      onChange={(e) => {
-                        setSenhaAdmin(e.target.value)
-                        setErroSenhaAdmin("")
-                      }}
-                      className="w-full p-3 pr-12 bg-neutral-950 border border-neutral-800 rounded-xl focus:outline-none focus:border-amber-500 text-white placeholder-neutral-600 transition"
-                      required
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSenha((v) => !v)}
-                      aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-amber-500 transition"
-                    >
-                      {mostrarSenha ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                    </button>
-                  </div>
-
-                  {erroSenhaAdmin && <p className="text-[11px] text-red-400">{erroSenhaAdmin}</p>}
-
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMostrarFormAdmin(false)
-                        setSenhaAdmin("")
-                        setErroSenhaAdmin("")
-                      }}
-                      className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-xl uppercase tracking-wider transition"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl uppercase tracking-wider transition"
-                    >
-                      Entrar
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
+            ) : (
+              <form onSubmit={validarLoginAdmin} className="space-y-3 text-left">
+                <label className="text-xs font-semibold text-neutral-400 block">Senha do Proprietário</label>
+                <div className="relative">
+                  <input
+                    type={mostrarSenha ? "text" : "password"}
+                    placeholder="Digite a senha"
+                    value={senhaAdmin}
+                    onChange={(e) => {
+                      setSenhaAdmin(e.target.value)
+                      setErroSenhaAdmin("")
+                    }}
+                    className="w-full p-3 pr-12 bg-neutral-900 border border-neutral-800 rounded-xl focus:outline-none focus:border-amber-500 text-white placeholder-neutral-600 transition"
+                    required
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMostrarSenha((v) => !v)}
+                    aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-amber-500 transition"
+                  >
+                    {mostrarSenha ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+                {erroSenhaAdmin && <p className="text-[11px] text-red-400">{erroSenhaAdmin}</p>}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMostrarFormAdmin(false)
+                      setSenhaAdmin("")
+                      setErroSenhaAdmin("")
+                    }}
+                    className="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-xl uppercase tracking-wider transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold text-xs rounded-xl uppercase tracking-wider transition"
+                  >
+                    Entrar
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
-      )}
+      </div>
+    )
+  }
 
-      {/* APLICAÇÃO LOGADA */}
-      {estaLogado && (
-        <div className="w-full max-w-md flex flex-col min-h-screen pb-20">
-          {/* BARRA SUPERIOR / CABEÇALHO */}
-          <header className="flex items-center justify-between py-4 border-b border-neutral-800 mb-4 px-2">
-            <div className="flex items-center space-x-2 cursor-pointer" onClick={() => setTelaAtual("inicial")}>
-              <span className="text-2xl">💈</span>
-              <div>
-                <h1 className="text-base font-bold tracking-wider text-amber-500 uppercase leading-none">HIROSCHI</h1>
-                <span className="text-[10px] text-neutral-400">{eAdmin ? "Painel do Proprietário" : "Barbearia"}</span>
-              </div>
-            </div>
+  // ============================================
+  // RENDER — APP LOGADO
+  // ============================================
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white pb-24">
+      <header className="sticky top-0 z-20 bg-neutral-950/90 backdrop-blur border-b border-neutral-800 px-4 py-3 flex items-center justify-between">
+        <h1 className="text-lg font-black text-amber-500">Barbearia Hiroschi</h1>
+        <button onClick={sair} className="text-xs text-neutral-400 hover:text-white transition">
+          Sair
+        </button>
+      </header>
 
-            <button
-              onClick={() => {
-                setEstaLogado(false)
-                setEAdmin(false)
-                setTelaAtual("inicial")
-              }}
-              className="text-xs text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-lg"
-            >
-              Sair
-            </button>
-          </header>
-
-          {/* NAVEGAÇÃO SUPERIOR RÁPIDA (CLIENTE) */}
-          {!eAdmin && (
-            <nav className="grid grid-cols-5 gap-1 bg-neutral-900 p-1 rounded-xl border border-neutral-800 mb-6 text-[10px] sm:text-xs">
-              <button
-                onClick={() => setTelaAtual("inicial")}
-                className={`py-2 rounded-lg transition text-center font-medium ${
-                  telaAtual === "inicial" ? "bg-amber-500 text-black font-bold" : "text-neutral-400 hover:text-white"
-                }`}
-              >
-                Início
-              </button>
-              <button
-                onClick={() => setTelaAtual("agendamento")}
-                className={`py-2 rounded-lg transition text-center font-medium ${
-                  telaAtual === "agendamento" ? "bg-amber-500 text-black font-bold" : "text-neutral-400 hover:text-white"
-                }`}
-              >
-                Agendar
-              </button>
-              <button
-                onClick={() => setTelaAtual("meus_agendamentos")}
-                className={`py-2 rounded-lg transition text-center font-medium ${
-                  telaAtual === "meus_agendamentos"
-                    ? "bg-amber-500 text-black font-bold"
-                    : "text-neutral-400 hover:text-white"
-                }`}
-              >
-                Agenda
-              </button>
-              <button
-                onClick={() => setTelaAtual("clube")}
-                className={`py-2 rounded-lg transition text-center font-medium ${
-                  telaAtual === "clube" ? "bg-amber-500 text-black font-bold" : "text-neutral-400 hover:text-white"
-                }`}
-              >
-                Clube
-              </button>
-              <button
-                onClick={() => setTelaAtual("produtos")}
-                className={`py-2 rounded-lg transition text-center font-medium ${
-                  telaAtual === "produtos" ? "bg-amber-500 text-black font-bold" : "text-neutral-400 hover:text-white"
-                }`}
-              >
-                Vitrine
-              </button>
-            </nav>
-          )}
-
-          {/* TELA INICIAL (CLIENTE) */}
-          {telaAtual === "inicial" && !eAdmin && (
-            <div className="space-y-6">
-              {/* TÍTULO & SAUDAÇÃO */}
-              <div className="text-center space-y-1">
-                <h2 className="text-xl font-black text-neutral-100">Bem-vindo à Barbearia Hiroschi</h2>
-                <p className="text-xs text-neutral-400">Seu próximo corte está a poucos cliques.</p>
-              </div>
-
-              {/* CARROSSEL DE FOTOS COM BANNER */}
-              {fotosBanners.length > 0 && (
-                <div className="relative w-full overflow-hidden rounded-2xl bg-neutral-900 border border-neutral-800 shadow-xl group">
-                  <div className="relative h-64 w-full">
-                    <img
-                      src={fotosBanners[fotoAtualIndex].url || "/placeholder.svg"}
-                      alt={fotosBanners[fotoAtualIndex].titulo}
-                      className="w-full h-full object-cover transition-all duration-700 ease-in-out"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-transparent to-transparent opacity-80" />
-                    <div className="absolute bottom-4 left-4 right-4 text-left">
-                      <span className="text-[10px] bg-amber-500 text-black px-2 py-0.5 rounded font-black uppercase">
-                        Destaque
-                      </span>
-                      <h3 className="text-lg font-bold text-white mt-1">{fotosBanners[fotoAtualIndex].titulo}</h3>
+      <div className="max-w-lg mx-auto px-4 py-6">
+        {/* ============ CLIENTE ============ */}
+        {!eAdmin && (
+          <div className="space-y-6">
+            {/* INÍCIO */}
+            {telaAtual === "inicial" && (
+              <div className="space-y-6">
+                <div className="relative h-52 rounded-2xl overflow-hidden border border-neutral-800">
+                  {fotosBanners.map((b, i) => (
+                    <div
+                      key={b.id}
+                      className={`absolute inset-0 transition-opacity duration-700 ${
+                        i === fotoAtualIndex ? "opacity-100" : "opacity-0"
+                      }`}
+                    >
+                      <img
+                        src={b.url || "/placeholder.svg"}
+                        alt={b.titulo}
+                        crossOrigin="anonymous"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 to-transparent" />
+                      <span className="absolute bottom-3 left-4 text-sm font-bold text-white">{b.titulo}</span>
                     </div>
-                  </div>
-
-                  {/* INDICADORES DO CARROSSEL */}
-                  <div className="absolute bottom-2 right-4 flex space-x-1.5">
-                    {fotosBanners.map((_, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setFotoAtualIndex(idx)}
-                        className={`h-2 rounded-full transition-all ${
-                          idx === fotoAtualIndex ? "w-6 bg-amber-500" : "w-2 bg-white/40"
-                        }`}
+                  ))}
+                  <div className="absolute bottom-3 right-4 flex gap-1.5">
+                    {fotosBanners.map((_, i) => (
+                      <span
+                        key={i}
+                        className={`w-2 h-2 rounded-full ${i === fotoAtualIndex ? "bg-amber-500" : "bg-white/40"}`}
                       />
                     ))}
                   </div>
                 </div>
-              )}
 
-              {/* BOTÕES DE NAVEGAÇÃO PRINCIPAIS */}
-              <div className="grid grid-cols-1 gap-3">
-                <button
-                  onClick={() => setTelaAtual("agendamento")}
-                  className="w-full p-4 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-xl flex items-center justify-between transition shadow-lg shadow-amber-500/10"
-                >
-                  <span className="flex items-center space-x-3">
-                    <span className="text-xl">📅</span>
-                    <span>Novo Agendamento</span>
-                  </span>
-                  <span>→</span>
-                </button>
+                <div className="text-center space-y-1">
+                  <p className="text-sm text-neutral-400">Bem-vindo,</p>
+                  <p className="text-lg font-bold">{whatsapp}</p>
+                </div>
 
-                <button
-                  onClick={() => setTelaAtual("meus_agendamentos")}
-                  className="w-full p-4 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl flex items-center justify-between transition"
-                >
-                  <span className="flex items-center space-x-3">
-                    <span className="text-xl">📋</span>
-                    <span>Meus Agendamentos</span>
-                  </span>
-                  <span>→</span>
-                </button>
-
-                <button
-                  onClick={() => setTelaAtual("clube")}
-                  className="w-full p-4 bg-gradient-to-r from-neutral-900 to-amber-950/40 border border-amber-500/30 rounded-xl flex items-center justify-between transition"
-                >
-                  <span className="flex items-center space-x-3">
-                    <span className="text-xl">💎</span>
-                    <span className="text-amber-400 font-bold">Clube Hiroschi</span>
-                  </span>
-                  <span className="text-amber-400">→</span>
-                </button>
-
-                <button
-                  onClick={() => setTelaAtual("produtos")}
-                  className="w-full p-4 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl flex items-center justify-between transition"
-                >
-                  <span className="flex items-center space-x-3">
-                    <span className="text-xl">🛒</span>
-                    <span>Produtos</span>
-                  </span>
-                  <span>→</span>
-                </button>
-              </div>
-
-              {/* BANNER DE AVALIAÇÃO */}
-              <div className="bg-neutral-900/60 border border-neutral-800 p-4 rounded-xl flex items-center justify-between">
-                <div>
-                  <div className="flex items-center space-x-1 text-amber-500 text-sm">
-                    <span>★</span>
-                    <span>★</span>
-                    <span>★</span>
-                    <span>★</span>
-                    <span>★</span>
-                    <span className="font-bold text-white ml-2">4,9 / 5,0</span>
-                  </div>
-                  <p className="text-[11px] text-neutral-400 mt-0.5">Mais de 500 clientes atendidos com excelência.</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setTelaAtual("agendamento")}
+                    className="p-5 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-bold rounded-2xl transition"
+                  >
+                    Agendar Horário
+                  </button>
+                  <button
+                    onClick={() => setTelaAtual("meus_agendamentos")}
+                    className="p-5 bg-neutral-900 border border-neutral-800 hover:border-neutral-700 rounded-2xl font-semibold transition"
+                  >
+                    Meus Agendamentos
+                  </button>
+                  <button
+                    onClick={() => setTelaAtual("clube")}
+                    className="p-5 bg-neutral-900 border border-neutral-800 hover:border-neutral-700 rounded-2xl font-semibold transition"
+                  >
+                    Clube Hiroschi
+                  </button>
+                  <button
+                    onClick={() => setTelaAtual("produtos")}
+                    className="p-5 bg-neutral-900 border border-neutral-800 hover:border-neutral-700 rounded-2xl font-semibold transition"
+                  >
+                    Produtos
+                  </button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* TELA DE AGENDAMENTO COM RESTRIÇÃO DE DIA */}
-          {telaAtual === "agendamento" && !eAdmin && (
-            <div className="space-y-6">
-              <h2 className="text-lg font-bold text-amber-500 border-b border-neutral-800 pb-2">Agendar Horário</h2>
+            {/* AGENDAMENTO */}
+            {telaAtual === "agendamento" && (
+              <div className="space-y-5">
+                <button onClick={() => setTelaAtual("inicial")} className="text-xs text-neutral-400 hover:text-white">
+                  ← Voltar
+                </button>
+                <h2 className="text-xl font-black">Agendar Horário</h2>
 
-              {/* SELEÇÃO DE SERVIÇOS (MÚLTIPLA) */}
-              <div className="space-y-2">
-                <label className="text-xs text-neutral-400">Serviços (selecione um ou mais)</label>
+                {/* SERVIÇOS */}
                 <div className="space-y-2">
+                  <label className="text-xs text-neutral-400">Serviços (selecione um ou mais)</label>
                   {servicos.map((s) => {
                     const marcado = servicosSelecionados.includes(s.id)
                     return (
@@ -978,9 +891,7 @@ export default function BarbeariaHiroschi() {
                         type="button"
                         onClick={() => alternarServicoSelecionado(s.id)}
                         className={`w-full p-3 rounded-xl border text-left flex items-center justify-between transition ${
-                          marcado
-                            ? "bg-amber-500/10 border-amber-500"
-                            : "bg-neutral-900 border-neutral-800 hover:border-neutral-700"
+                          marcado ? "bg-amber-500/10 border-amber-500" : "bg-neutral-900 border-neutral-800"
                         }`}
                       >
                         <span className="flex items-center gap-3">
@@ -992,7 +903,14 @@ export default function BarbeariaHiroschi() {
                             ✓
                           </span>
                           <span>
-                            <span className="block text-sm font-medium text-white">{s.nome}</span>
+                            <span className="block text-sm font-medium text-white">
+                              {s.nome}
+                              {s.longo && (
+                                <span className="ml-2 text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded uppercase">
+                                  até 16h
+                                </span>
+                              )}
+                            </span>
                             <span className="block text-[11px] text-neutral-400">{s.duracao} min</span>
                           </span>
                         </span>
@@ -1000,691 +918,764 @@ export default function BarbeariaHiroschi() {
                       </button>
                     )
                   })}
-                </div>
-
-                {servicosSelecionados.length > 0 && (
-                  <div className="flex justify-between text-xs text-neutral-300 bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-                    <span>
-                      Duração total: <strong className="text-amber-400">{duracaoTotalSelecionada} min</strong>
-                    </span>
-                    <span>
-                      Total: <strong className="text-amber-400">R$ {precoTotalSelecionado.toFixed(2)}</strong>
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* SELEÇÃO DO DIA (APENAS DIAS ABERTOS) */}
-              <div className="space-y-2">
-                <label className="text-xs text-neutral-400">Escolha o Dia</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {horarios
-                    .filter((h) => h.aberto)
-                    .map((h) => (
-                      <button
-                        key={h.dia}
-                        onClick={() => lidarComSelecaoDeDia(h.dia)}
-                        className={`p-3 rounded-xl border text-sm font-medium transition ${
-                          diaSelecionado === h.dia
-                            ? "bg-amber-500 border-amber-500 text-black font-bold"
-                            : "bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700"
-                        }`}
-                      >
-                        {h.dia}
-                      </button>
-                    ))}
-                </div>
-              </div>
-
-              {/* MENSAGEM DE ERRO/ALERTA DO CLUBE */}
-              {erroAgendamento && (
-                <div className="p-4 bg-red-950/40 border border-red-500/50 rounded-xl text-red-300 text-xs leading-relaxed">
-                  ⚠️ {erroAgendamento}
-                </div>
-              )}
-
-              {usuarioClube && usuarioClube.status === "Ativo" && (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-xs">
-                  💎 Você é membro do <strong>Clube Hiroschi ({usuarioClube.plano})</strong>. Seus agendamentos são de
-                  terça a quinta com isenção no atendimento!
-                </div>
-              )}
-
-              {/* HORÁRIOS DISPONÍVEIS (BASEADOS NA DURAÇÃO TOTAL) */}
-              {diaSelecionado && !erroAgendamento && servicosSelecionados.length > 0 && (
-                <div className="space-y-2">
-                  <label className="text-xs text-neutral-400">Horários disponíveis</label>
-                  {gerarHorariosDisponiveis(diaSelecionado, duracaoTotalSelecionada).length === 0 ? (
-                    <p className="text-xs text-neutral-500 bg-neutral-900 border border-neutral-800 rounded-xl p-3">
-                      Não há horários livres para essa duração neste dia.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-4 gap-2">
-                      {gerarHorariosDisponiveis(diaSelecionado, duracaoTotalSelecionada).map((hora) => (
-                        <button
-                          key={hora}
-                          onClick={() => setHorarioSelecionado(hora)}
-                          className={`py-2 rounded-lg border text-xs font-medium transition ${
-                            horarioSelecionado === hora
-                              ? "bg-amber-500 border-amber-500 text-black font-bold"
-                              : "bg-neutral-900 border-neutral-800 text-neutral-300 hover:border-neutral-700"
-                          }`}
-                        >
-                          {hora}
-                        </button>
-                      ))}
+                  {servicosSelecionados.length > 0 && (
+                    <div className="flex justify-between text-xs text-neutral-300 bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                      <span>
+                        Duração: <strong className="text-amber-400">{duracaoTotalSelecionada} min</strong>
+                      </span>
+                      <span>
+                        Total: <strong className="text-amber-400">R$ {precoTotalSelecionado.toFixed(2)}</strong>
+                      </span>
                     </div>
                   )}
                 </div>
-              )}
 
-              <button
-                onClick={confirmarAgendamento}
-                disabled={
-                  !!erroAgendamento ||
-                  !diaSelecionado ||
-                  servicosSelecionados.length === 0 ||
-                  !horarioSelecionado
-                }
-                className="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold rounded-xl uppercase tracking-wider transition"
-              >
-                Confirmar Agendamento
-              </button>
-            </div>
-          )}
+                {/* DIA */}
+                <div className="space-y-2">
+                  <label className="text-xs text-neutral-400">Escolha o Dia</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {horarios
+                      .filter((h) => h.aberto)
+                      .map((h) => (
+                        <button
+                          key={h.dia}
+                          onClick={() => lidarComSelecaoDeDia(h.dia)}
+                          className={`p-3 rounded-xl border text-sm font-medium transition ${
+                            diaSelecionado === h.dia
+                              ? "bg-amber-500 border-amber-500 text-black font-bold"
+                              : "bg-neutral-900 border-neutral-800 text-neutral-300"
+                          }`}
+                        >
+                          {h.dia}
+                        </button>
+                      ))}
+                  </div>
+                </div>
 
-          {/* TELA MEUS AGENDAMENTOS */}
-          {telaAtual === "meus_agendamentos" && !eAdmin && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold text-amber-500 border-b border-neutral-800 pb-2">Meus Agendamentos</h2>
+                {erroAgendamento && (
+                  <div className="p-4 bg-amber-950/40 border border-amber-500/50 rounded-xl text-amber-300 text-xs leading-relaxed">
+                    ⚠️ {erroAgendamento}
+                  </div>
+                )}
 
-              {agendamentos.length === 0 ? (
-                <p className="text-xs text-neutral-500 text-center py-8">Nenhum agendamento encontrado.</p>
-              ) : (
-                agendamentos.map((item) => (
-                  <div key={item.id} className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl space-y-2">
-                    <div className="flex justify-between items-start">
-                      <h3 className="font-bold text-sm text-white">{item.servico}</h3>
-                      {item.eClube && (
-                        <span className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-bold">
-                          Clube {item.planoClube}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-xs text-neutral-400 flex justify-between">
-                      <span>Dia: {item.dia}</span>
-                      <span>Horário: {item.horario}</span>
+                {isentoPeloClube && (
+                  <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-xl text-green-400 text-xs">
+                    💎 Membro do Clube ({usuarioClube?.plano}) — atendimento isento de terça a quinta!
+                  </div>
+                )}
+
+                {/* HORÁRIOS */}
+                {diaSelecionado && servicosSelecionados.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-xs text-neutral-400">Horários disponíveis</label>
+                    {gerarHorariosDisponiveis(diaSelecionado, duracaoTotalSelecionada).length === 0 ? (
+                      <p className="text-xs text-neutral-500 bg-neutral-900 border border-neutral-800 rounded-xl p-3">
+                        Não há horários livres para essa duração neste dia.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-2">
+                        {gerarHorariosDisponiveis(diaSelecionado, duracaoTotalSelecionada).map((hora) => (
+                          <button
+                            key={hora}
+                            onClick={() => {
+                              setHorarioSelecionado(hora)
+                              setFormaPagamento("")
+                            }}
+                            className={`py-2 rounded-lg border text-xs font-medium transition ${
+                              horarioSelecionado === hora
+                                ? "bg-amber-500 border-amber-500 text-black font-bold"
+                                : "bg-neutral-900 border-neutral-800 text-neutral-300"
+                            }`}
+                          >
+                            {hora}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* PAGAMENTO (cliente avulso / não isento) */}
+                {horarioSelecionado && !isentoPeloClube && (
+                  <div className="space-y-2">
+                    <label className="text-xs text-neutral-400">Forma de Pagamento</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["Pagar no Local", "PIX"] as const).map((op) => (
+                        <button
+                          key={op}
+                          onClick={() => setFormaPagamento(op)}
+                          className={`p-3 rounded-xl border text-sm font-medium transition ${
+                            formaPagamento === op
+                              ? "bg-amber-500 border-amber-500 text-black font-bold"
+                              : "bg-neutral-900 border-neutral-800 text-neutral-300"
+                          }`}
+                        >
+                          {op === "PIX" ? "Pagar via PIX Agora" : "Pagar no Local"}
+                        </button>
+                      ))}
                     </div>
                   </div>
-                ))
-              )}
-            </div>
-          )}
+                )}
 
-          {/* TELA CLUBE HIROSCHI */}
-          {telaAtual === "clube" && !eAdmin && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-br from-neutral-900 to-neutral-950 border border-amber-500/30 p-6 rounded-2xl relative overflow-hidden">
-                <div className="absolute -right-4 -bottom-4 text-8xl opacity-10">💎</div>
-                <h2 className="text-xl font-black text-amber-500 uppercase tracking-wide">Clube Hiroschi</h2>
+                <button
+                  onClick={confirmarAgendamento}
+                  disabled={
+                    servicosSelecionados.length === 0 ||
+                    !diaSelecionado ||
+                    !horarioSelecionado ||
+                    (!isentoPeloClube && !formaPagamento)
+                  }
+                  className="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold rounded-xl uppercase tracking-wider transition"
+                >
+                  Confirmar Agendamento
+                </button>
+              </div>
+            )}
 
-                {usuarioClube && usuarioClube.status === "Ativo" ? (
-                  <div className="mt-4 space-y-2 text-xs">
-                    <div className="flex justify-between border-b border-neutral-800 pb-2">
-                      <span className="text-neutral-400">Membro:</span>
-                      <span className="font-bold text-white">{usuarioClube.nome}</span>
-                    </div>
-                    <div className="flex justify-between border-b border-neutral-800 pb-2">
-                      <span className="text-neutral-400">Plano Atual:</span>
-                      <span className="font-bold text-amber-400">{usuarioClube.plano}</span>
-                    </div>
-                    <div className="flex justify-between border-b border-neutral-800 pb-2">
-                      <span className="text-neutral-400">Início:</span>
-                      <span className="text-white">{usuarioClube.inicio}</span>
-                    </div>
-                    <div className="flex justify-between border-b border-neutral-800 pb-2">
-                      <span className="text-neutral-400">Próxima Cobrança:</span>
-                      <span className="text-white">{usuarioClube.proximaCobranca}</span>
-                    </div>
-                    <div className="flex justify-between pt-1">
-                      <span className="text-neutral-400">Status:</span>
-                      <span className="text-green-400 font-bold">● {usuarioClube.status}</span>
-                    </div>
-                  </div>
-                ) : usuarioClube && usuarioClube.status === "Pendente" ? (
-                  <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl space-y-1">
-                    <p className="text-xs font-bold text-yellow-400">⏳ Solicitação em análise</p>
-                    <p className="text-[11px] text-neutral-300 leading-relaxed">
-                      Recebemos sua solicitação do <strong>Plano {usuarioClube.plano}</strong>. Os benefícios serão
-                      liberados assim que o proprietário confirmar o pagamento pelo WhatsApp.
-                    </p>
-                  </div>
+            {/* MEUS AGENDAMENTOS */}
+            {telaAtual === "meus_agendamentos" && (
+              <div className="space-y-4">
+                <button onClick={() => setTelaAtual("inicial")} className="text-xs text-neutral-400 hover:text-white">
+                  ← Voltar
+                </button>
+                <h2 className="text-xl font-black">Meus Agendamentos</h2>
+                {agendamentos.length === 0 ? (
+                  <p className="text-sm text-neutral-500 text-center py-8">Nenhum agendamento.</p>
                 ) : (
-                  <p className="text-xs text-neutral-400 mt-2">
-                    Assine o clube para garantir seus cortes mensais e benefícios exclusivos.
-                  </p>
+                  agendamentos.map((a) => (
+                    <div key={a.id} className="p-4 bg-neutral-900 border border-neutral-800 rounded-2xl">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-white">{a.servico}</h4>
+                          <p className="text-xs text-neutral-400">
+                            {a.dia} às {a.horario} • {a.duracao} min
+                          </p>
+                          <p className="text-xs text-neutral-500 mt-1">{a.pagamento}</p>
+                        </div>
+                        <span className="text-sm font-bold text-amber-500">
+                          {a.eClube ? "Isento" : `R$ ${a.valor.toFixed(2)}`}
+                        </span>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
+            )}
 
-              {/* PLANOS */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-bold text-neutral-300">Escolha seu Plano</h3>
+            {/* CLUBE */}
+            {telaAtual === "clube" && (
+              <div className="space-y-5">
+                <button onClick={() => setTelaAtual("inicial")} className="text-xs text-neutral-400 hover:text-white">
+                  ← Voltar
+                </button>
+                <h2 className="text-xl font-black">Clube Hiroschi</h2>
 
-                {(
-                  [
-                    { nome: "Bronze", preco: "R$ 49,90/mês", descricao: "2 cortes por mês" },
-                    { nome: "Prata", preco: "R$ 79,90/mês", descricao: "2 cortes + barba" },
-                    { nome: "Ouro", preco: "R$ 99,90/mês", descricao: "4 cortes por mês" },
-                    { nome: "Diamante", preco: "R$ 169,90/mês", descricao: "4 cortes + barba" },
-                  ] as { nome: ClienteClube["plano"]; preco: string; descricao: string }[]
-                ).map((plano) => {
-                  const ehPlanoSolicitado = usuarioClube?.plano === plano.nome
-                  const pendente = ehPlanoSolicitado && usuarioClube?.status === "Pendente"
-                  const ativo = ehPlanoSolicitado && usuarioClube?.status === "Ativo"
-                  return (
-                    <div
-                      key={plano.nome}
-                      className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between gap-3"
-                    >
-                      <div>
-                        <h4 className="font-bold text-sm text-white">Plano {plano.nome}</h4>
-                        <p className="text-[11px] text-neutral-400">{plano.descricao}</p>
-                        <span className="text-xs text-amber-500 font-bold block mt-1">{plano.preco}</span>
-                      </div>
-                      <button
-                        onClick={() => solicitarAssinatura(plano.nome)}
-                        disabled={pendente || ativo}
-                        className="px-3 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-bold text-xs rounded-lg uppercase whitespace-nowrap transition"
-                      >
-                        {ativo ? "Ativo" : pendente ? "Pendente" : "Assinar"}
-                      </button>
+                <div className="p-4 bg-neutral-900 border border-neutral-800 rounded-2xl">
+                  <h3 className="text-sm font-bold text-amber-500">Seu Status</h3>
+                  {clubeAtivo ? (
+                    <div className="mt-2 space-y-1 text-xs text-neutral-300">
+                      <p>
+                        Plano <strong className="text-white">{usuarioClube?.plano}</strong> — Ativo ✅
+                      </p>
+                      <p>Próxima cobrança: {usuarioClube?.proximaCobranca}</p>
                     </div>
-                  )
-                })}
+                  ) : usuarioClube && usuarioClube.status === "Pendente" ? (
+                    <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl space-y-1">
+                      <p className="text-xs font-bold text-yellow-400">⏳ Solicitação em análise</p>
+                      <p className="text-[11px] text-neutral-300 leading-relaxed">
+                        Recebemos seu pedido do <strong>Plano {usuarioClube.plano}</strong>. Os benefícios serão
+                        liberados assim que o proprietário confirmar o pagamento.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-neutral-400 mt-2">
+                      Assine um plano para garantir seus cortes mensais e benefícios exclusivos.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  {PLANOS.map((plano) => {
+                    const ehSolicitado = usuarioClube?.plano === plano.nome
+                    const pendente = ehSolicitado && usuarioClube?.status === "Pendente"
+                    const ativo = ehSolicitado && usuarioClube?.status === "Ativo"
+                    return (
+                      <div
+                        key={plano.nome}
+                        className="p-4 bg-neutral-900 border border-neutral-800 rounded-xl flex items-center justify-between gap-3"
+                      >
+                        <div>
+                          <h4 className="font-bold text-sm text-white">Plano {plano.nome}</h4>
+                          <p className="text-[11px] text-neutral-400">{plano.descricao}</p>
+                          <span className="text-xs text-amber-500 font-bold block mt-1">{plano.preco}</span>
+                        </div>
+                        <button
+                          onClick={() => solicitarAssinatura(plano.nome)}
+                          disabled={pendente || ativo}
+                          className="px-3 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold text-xs rounded-lg uppercase whitespace-nowrap transition"
+                        >
+                          {ativo ? "Ativo" : pendente ? "Pendente" : "Assinar"}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <p className="text-[11px] text-neutral-500 leading-relaxed">
+                  Membros ativos agendam de terça a quinta com isenção do plano. Sextas e sábados são cobrados por fora
+                  como cliente avulso.
+                </p>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* TELA DE PRODUTOS (VITRINE SEM CORTAR IMAGENS) */}
-          {telaAtual === "produtos" && !eAdmin && (
-            <div className="space-y-4">
-              <h2 className="text-lg font-bold text-amber-500 border-b border-neutral-800 pb-2">Vitrine de Produtos</h2>
-
-              <div className="grid grid-cols-1 gap-4">
-                {produtos.map((p) => (
-                  <div
-                    key={p.id}
-                    className="bg-neutral-900 border border-neutral-800 p-4 rounded-xl flex space-x-4 items-center"
-                  >
-                    {/* Imagem Inteira mantendo Proporção (object-contain) */}
-                    <div className="w-24 h-24 bg-neutral-950 rounded-lg p-1 border border-neutral-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+            {/* PRODUTOS */}
+            {telaAtual === "produtos" && (
+              <div className="space-y-4">
+                <button onClick={() => setTelaAtual("inicial")} className="text-xs text-neutral-400 hover:text-white">
+                  ← Voltar
+                </button>
+                <h2 className="text-xl font-black">Produtos</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  {produtos.map((p) => (
+                    <div key={p.id} className="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-hidden">
                       <img
                         src={p.imagem || "/placeholder.svg"}
                         alt={p.nome}
-                        className="w-full h-full object-contain"
+                        crossOrigin="anonymous"
+                        className="w-full h-28 object-cover"
                       />
+                      <div className="p-3 space-y-1">
+                        <h4 className="text-sm font-bold text-white">{p.nome}</h4>
+                        <p className="text-[10px] text-neutral-400 leading-snug">{p.descricao}</p>
+                        <span className="text-sm font-bold text-amber-500 block">R$ {p.preco.toFixed(2)}</span>
+                      </div>
                     </div>
-
-                    <div className="flex-1 space-y-1">
-                      <h3 className="font-bold text-sm text-white">{p.nome}</h3>
-                      <p className="text-[11px] text-neutral-400 leading-tight">{p.descricao}</p>
-                      <span className="text-sm font-black text-amber-500 block pt-1">R$ {p.preco.toFixed(2)}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* PAINEL ADMINISTRATIVO (PROPRIETÁRIO) */}
-          {eAdmin && (
-            <div className="space-y-6">
-              {/* NAVEGAÇÃO POR ABAS DO PAINEL */}
-              <nav className="grid grid-cols-4 gap-1 bg-neutral-900 p-1 rounded-xl border border-neutral-800 text-[10px] sm:text-xs">
-                {(
-                  [
-                    { id: "caixa", label: "Caixa" },
-                    { id: "agenda", label: "Agenda" },
-                    { id: "servicos", label: "Serviços" },
-                    { id: "horarios", label: "Horários" },
-                    { id: "clientes", label: "Clientes" },
-                    { id: "clube", label: "Clube" },
-                    { id: "banners", label: "Banners" },
-                  ] as { id: typeof abaAdmin; label: string }[]
-                ).map((aba) => (
-                  <button
-                    key={aba.id}
-                    onClick={() => setAbaAdmin(aba.id)}
-                    className={`py-2 rounded-lg transition text-center font-medium ${
-                      abaAdmin === aba.id ? "bg-amber-500 text-black font-bold" : "text-neutral-400 hover:text-white"
-                    }`}
-                  >
-                    {aba.label}
-                  </button>
-                ))}
-              </nav>
+        {/* ============ PAINEL ADMIN ============ */}
+        {eAdmin && (
+          <div className="space-y-6">
+            {/* ABAS */}
+            <nav className="grid grid-cols-4 gap-1 bg-neutral-900 p-1 rounded-xl border border-neutral-800 text-[10px] sm:text-xs">
+              {(
+                [
+                  { id: "caixa", label: "Caixa" },
+                  { id: "agenda", label: "Agenda" },
+                  { id: "servicos", label: "Serviços" },
+                  { id: "horarios", label: "Horários" },
+                  { id: "clientes", label: "Clientes" },
+                  { id: "clube", label: "Clube" },
+                  { id: "banners", label: "Banners" },
+                ] as { id: typeof abaAdmin; label: string }[]
+              ).map((aba) => (
+                <button
+                  key={aba.id}
+                  onClick={() => setAbaAdmin(aba.id)}
+                  className={`py-2 rounded-lg transition text-center font-medium ${
+                    abaAdmin === aba.id ? "bg-amber-500 text-black font-bold" : "text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  {aba.label}
+                </button>
+              ))}
+            </nav>
 
-              {/* ABA CAIXA */}
-              {abaAdmin === "caixa" && (
+            {/* ABA CAIXA */}
+            {abaAdmin === "caixa" && (
               <>
-              {/* CAIXA DO DIA E RECEBIMENTOS */}
-              <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
-                <h2 className="text-lg font-black text-amber-500 uppercase tracking-wide flex items-center justify-between">
-                  <span>💰 Caixa Inteligente</span>
-                  <span className="text-xs text-neutral-400 font-normal">Hoje</span>
-                </h2>
-
-                <div className="grid grid-cols-2 gap-2 text-center">
-                  <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800">
-                    <span className="text-[10px] text-neutral-400 block uppercase">Total Recebido</span>
-                    <span className="text-lg font-black text-green-400">R$ {faturamentoTotal.toFixed(2)}</span>
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
+                  <h2 className="text-lg font-black text-amber-500 uppercase tracking-wide flex items-center justify-between">
+                    <span>💰 Caixa Inteligente</span>
+                    <span className="text-xs text-neutral-400 font-normal">Hoje</span>
+                  </h2>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center">
+                      <p className="text-[10px] text-neutral-400 uppercase">PIX</p>
+                      <p className="text-sm font-bold text-white">R$ {totalPix.toFixed(2)}</p>
+                    </div>
+                    <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center">
+                      <p className="text-[10px] text-neutral-400 uppercase">Cartão</p>
+                      <p className="text-sm font-bold text-white">R$ {totalCartao.toFixed(2)}</p>
+                    </div>
+                    <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center">
+                      <p className="text-[10px] text-neutral-400 uppercase">Dinheiro</p>
+                      <p className="text-sm font-bold text-white">R$ {totalDinheiro.toFixed(2)}</p>
+                    </div>
                   </div>
-                  <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800">
-                    <span className="text-[10px] text-neutral-400 block uppercase">Atendimentos Clube</span>
-                    <span className="text-lg font-black text-amber-400">R$ {valorTotalIsentoClube.toFixed(2)}</span>
-                    <span className="text-[9px] text-neutral-500 block">(Não soma ao caixa)</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-1 text-center text-xs pt-2 border-t border-neutral-800">
-                  <div>
-                    <span className="text-neutral-400 block">PIX</span>
-                    <span className="font-bold text-white">R$ {faturamentoPix}</span>
-                  </div>
-                  <div>
-                    <span className="text-neutral-400 block">Cartão</span>
-                    <span className="font-bold text-white">R$ {faturamentoCartao}</span>
-                  </div>
-                  <div>
-                    <span className="text-neutral-400 block">Dinheiro</span>
-                    <span className="font-bold text-white">R$ {faturamentoDinheiro}</span>
-                  </div>
-                </div>
-
-                {/* LANÇAR NOVO ATENDIMENTO */}
-                <form onSubmit={lancarCaixa} className="pt-4 border-t border-neutral-800 space-y-3">
-                  <h3 className="text-xs font-bold text-amber-400 uppercase">Finalizar Atendimento</h3>
-
-                  <input
-                    type="text"
-                    placeholder="Nome do Cliente"
-                    value={caixaCliente}
-                    onChange={(e) => setCaixaCliente(e.target.value)}
-                    className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                    required
-                  />
-
                   <div className="grid grid-cols-2 gap-2">
+                    <div className="p-3 bg-green-500/10 rounded-xl border border-green-500/30 text-center">
+                      <p className="text-[10px] text-green-400 uppercase">Faturamento Real</p>
+                      <p className="text-base font-black text-green-400">R$ {faturamentoReal.toFixed(2)}</p>
+                    </div>
+                    <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/30 text-center">
+                      <p className="text-[10px] text-amber-400 uppercase">Coberto pelo Clube</p>
+                      <p className="text-base font-black text-amber-400">R$ {cobertoClube.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">Registrar Atendimento</h2>
+                  <form onSubmit={registrarCaixa} className="space-y-2">
                     <input
-                      type="number"
-                      placeholder="Valor (R$)"
-                      value={caixaValor}
-                      onChange={(e) => setCaixaValor(e.target.value)}
+                      type="text"
+                      placeholder="Cliente"
+                      value={caixaCliente}
+                      onChange={(e) => setCaixaCliente(e.target.value)}
                       className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
                       required
                     />
                     <input
-                      type="number"
-                      placeholder="Desconto (R$)"
-                      value={caixaDesconto}
-                      onChange={(e) => setCaixaDesconto(e.target.value)}
+                      type="text"
+                      placeholder="Serviço"
+                      value={caixaServico}
+                      onChange={(e) => setCaixaServico(e.target.value)}
                       className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                      required
                     />
-                  </div>
-
-                  <div className="flex items-center space-x-2 pt-1">
-                    <input
-                      type="checkbox"
-                      id="eClube"
-                      checked={caixaEClube}
-                      onChange={(e) => setCaixaEClube(e.target.checked)}
-                      className="rounded bg-neutral-950 border-neutral-800"
-                    />
-                    <label htmlFor="eClube" className="text-xs text-amber-400">
-                      Cliente do Clube Hiroschi (Isento hoje)
-                    </label>
-                  </div>
-
-                  {!caixaEClube && (
-                    <select
-                      value={caixaMetodo}
-                      onChange={(e) => setCaixaMetodo(e.target.value as "PIX" | "Cartão" | "Dinheiro")}
-                      className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                    >
-                      <option value="PIX">Pagamento via PIX</option>
-                      <option value="Cartão">Pagamento via Cartão</option>
-                      <option value="Dinheiro">Pagamento em Dinheiro</option>
-                    </select>
-                  )}
-
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-green-600 hover:bg-green-500 text-white font-bold text-xs rounded-lg uppercase tracking-wider transition"
-                  >
-                    Confirmar Atendimento
-                  </button>
-                </form>
-              </div>
-              </>
-              )}
-
-              {/* ABA AGENDA (LISTA + ENCAIXE MANUAL) */}
-              {abaAdmin === "agenda" && (
-                <>
-                  {/* ENCAIXE MANUAL */}
-                  <div className="bg-neutral-900 border border-amber-500/30 p-5 rounded-2xl space-y-4">
-                    <h2 className="text-sm font-bold text-amber-500 uppercase">➕ Novo Encaixe Manual</h2>
-                    <p className="text-[11px] text-neutral-400 leading-relaxed">
-                      O encaixe é criado diretamente pelo proprietário e ignora a trava de antecedência de 6 horas.
-                    </p>
-                    <form onSubmit={criarEncaixe} className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <input
-                        type="text"
-                        placeholder="Nome do Cliente"
-                        value={encaixeCliente}
-                        onChange={(e) => setEncaixeCliente(e.target.value)}
+                        type="number"
+                        step="0.01"
+                        placeholder="Valor (R$)"
+                        value={caixaValor}
+                        onChange={(e) => setCaixaValor(e.target.value)}
                         className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                        required
                       />
                       <select
-                        value={encaixeServico}
-                        onChange={(e) => setEncaixeServico(e.target.value)}
+                        value={caixaMetodo}
+                        onChange={(e) => setCaixaMetodo(e.target.value as MovimentacaoCaixa["metodo"])}
                         className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
                       >
-                        <option value="">Selecione o serviço</option>
-                        {servicos.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.nome} • {s.duracao} min • R$ {s.preco.toFixed(2)}
-                          </option>
-                        ))}
+                        <option value="PIX">PIX</option>
+                        <option value="Cartão">Cartão</option>
+                        <option value="Dinheiro">Dinheiro</option>
+                        <option value="Clube Hiroschi">Clube Hiroschi</option>
                       </select>
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={encaixeDia}
-                          onChange={(e) => setEncaixeDia(e.target.value)}
-                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                        >
-                          {horarios.map((h) => (
-                            <option key={h.dia} value={h.dia}>
-                              {h.dia}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          type="time"
-                          value={encaixeHorario}
-                          onChange={(e) => setEncaixeHorario(e.target.value)}
-                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                          required
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase tracking-wider transition"
-                      >
-                        Adicionar Encaixe
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* LISTA DE AGENDAMENTOS */}
-                  <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
-                    <h2 className="text-sm font-bold text-amber-500 uppercase">📅 Agenda de Atendimentos</h2>
-                    {agendamentos.length === 0 ? (
-                      <p className="text-xs text-neutral-500 text-center py-4">Nenhum agendamento na agenda.</p>
-                    ) : (
-                      agendamentos.map((a) => (
-                        <div
-                          key={a.id}
-                          className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-xs flex justify-between items-center"
-                        >
-                          <div>
-                            <h4 className="font-bold text-white flex items-center gap-2">
-                              {a.clienteNome}
-                              {a.eEncaixe && (
-                                <span className="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold uppercase">
-                                  Encaixe
-                                </span>
-                              )}
-                              {a.eClube && (
-                                <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded font-bold uppercase">
-                                  Clube
-                                </span>
-                              )}
-                            </h4>
-                            <p className="text-[10px] text-neutral-400">
-                              {a.servico} • {a.duracao} min
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <span className="block font-bold text-amber-400">{a.horario}</span>
-                            <span className="block text-[10px] text-neutral-500">{a.dia}</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* ABA SERVIÇOS (CRUD) */}
-              {abaAdmin === "servicos" && (
-                <>
-                  <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
-                    <h2 className="text-sm font-bold text-amber-500 uppercase">
-                      ✂️ {servicoEditandoId ? "Alterar Serviço" : "Cadastrar Serviço"}
-                    </h2>
-                    <form onSubmit={salvarServico} className="space-y-2">
-                      <input
-                        type="text"
-                        placeholder="Nome do serviço"
-                        value={servicoNome}
-                        onChange={(e) => setServicoNome(e.target.value)}
-                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                        required
-                      />
-                      <div className="grid grid-cols-2 gap-2">
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder="Preço (R$)"
-                          value={servicoPreco}
-                          onChange={(e) => setServicoPreco(e.target.value)}
-                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                          required
-                        />
-                        <input
-                          type="number"
-                          placeholder="Duração (min)"
-                          value={servicoDuracao}
-                          onChange={(e) => setServicoDuracao(e.target.value)}
-                          className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[11px] text-neutral-400 mb-1 block">Foto do serviço (galeria do celular)</label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={lidarComUploadFotoServico}
-                          className="w-full text-xs text-neutral-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-500 file:text-black file:font-bold file:text-xs file:uppercase file:cursor-pointer bg-neutral-950 border border-neutral-800 rounded-lg p-1.5"
-                        />
-                      </div>
-                      {servicoFoto && (
-                        <img
-                          src={servicoFoto || "/placeholder.svg"}
-                          alt="Pré-visualização do serviço"
-                          className="w-full h-28 object-cover rounded-lg border border-neutral-800"
-                        />
-                      )}
-                      <div className="flex gap-2">
-                        {servicoEditandoId && (
-                          <button
-                            type="button"
-                            onClick={limparFormServico}
-                            className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-lg uppercase transition"
-                          >
-                            Cancelar
-                          </button>
-                        )}
-                        <button
-                          type="submit"
-                          className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase tracking-wider transition"
-                        >
-                          {servicoEditandoId ? "Salvar Alterações" : "Cadastrar Serviço"}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-
-                  <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
-                    <h2 className="text-sm font-bold text-amber-500 uppercase">Serviços Cadastrados</h2>
-                    {servicos.length === 0 ? (
-                      <p className="text-xs text-neutral-500 text-center py-4">Nenhum serviço cadastrado.</p>
-                    ) : (
-                      servicos.map((s) => (
-                        <div
-                          key={s.id}
-                          className="p-2.5 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center gap-3"
-                        >
-                          <div className="w-12 h-12 bg-neutral-900 rounded-lg border border-neutral-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                            {s.foto ? (
-                              <img src={s.foto || "/placeholder.svg"} alt={s.nome} className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-lg">✂️</span>
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <h4 className="font-bold text-white text-xs">{s.nome}</h4>
-                            <p className="text-[10px] text-neutral-400">
-                              R$ {s.preco.toFixed(2)} • {s.duracao} min
-                            </p>
-                          </div>
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => editarServico(s)}
-                              className="px-2 py-1 bg-neutral-800 text-neutral-200 rounded text-[10px] hover:bg-neutral-700"
-                            >
-                              Alterar
-                            </button>
-                            <button
-                              onClick={() => excluirServico(s.id)}
-                              className="px-2 py-1 bg-red-950/60 text-red-400 rounded text-[10px] hover:bg-red-900/60"
-                            >
-                              Excluir
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </>
-              )}
-
-              {/* ABA HORÁRIOS DE FUNCIONAMENTO */}
-              {abaAdmin === "horarios" && (
-                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
-                  <h2 className="text-sm font-bold text-amber-500 uppercase">🕒 Horário de Funcionamento</h2>
-                  <p className="text-[11px] text-neutral-400 leading-relaxed">
-                    Marque os dias abertos e ajuste os horários de abertura e fechamento.
-                  </p>
-                  {horarios.map((h) => (
-                    <div
-                      key={h.dia}
-                      className={`p-3 rounded-xl border space-y-2 ${
-                        h.aberto ? "bg-neutral-950 border-neutral-800" : "bg-neutral-950/50 border-neutral-800/60"
-                      }`}
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase tracking-wider transition"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className={`text-xs font-bold ${h.aberto ? "text-white" : "text-neutral-500"}`}>
-                          {h.dia}
+                      Confirmar Atendimento
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-2">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">Movimentações de Hoje</h2>
+                  {historicoCaixa.map((m) => (
+                    <div
+                      key={m.id}
+                      className="p-2.5 bg-neutral-950 rounded-lg border border-neutral-800 flex justify-between items-center text-xs"
+                    >
+                      <div>
+                        <span className="block font-bold text-white">{m.cliente}</span>
+                        <span className="block text-[10px] text-neutral-400">
+                          {m.servico} • {m.metodo}
                         </span>
-                        <button
-                          onClick={() => alternarDiaAberto(h.dia)}
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition ${
-                            h.aberto
-                              ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                              : "bg-red-500/10 text-red-400 border border-red-500/30"
-                          }`}
-                        >
-                          {h.aberto ? "Aberto" : "Fechado"}
-                        </button>
                       </div>
-                      {h.aberto && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="text-[10px] text-neutral-500 block mb-1">Abertura</label>
-                            <input
-                              type="time"
-                              value={h.abertura}
-                              onChange={(e) => atualizarHorarioDia(h.dia, "abertura", e.target.value)}
-                              className="w-full p-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-neutral-500 block mb-1">Fechamento</label>
-                            <input
-                              type="time"
-                              value={h.fechamento}
-                              onChange={(e) => atualizarHorarioDia(h.dia, "fechamento", e.target.value)}
-                              className="w-full p-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white"
-                            />
-                          </div>
-                        </div>
-                      )}
+                      <span className={`font-bold ${m.eClube ? "text-amber-400" : "text-green-400"}`}>
+                        {m.eClube ? "Isento" : `R$ ${m.valorPago.toFixed(2)}`}
+                      </span>
                     </div>
                   ))}
                 </div>
-              )}
+              </>
+            )}
 
-              {/* ABA CLIENTES */}
-              {abaAdmin === "clientes" && (
-                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
-                  <h2 className="text-sm font-bold text-amber-500 uppercase">👥 Clientes</h2>
-                  <input
-                    type="text"
-                    placeholder="Buscar por nome ou apelido..."
-                    value={buscaCliente}
-                    onChange={(e) => setBuscaCliente(e.target.value)}
-                    className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
-                  />
-                  {clientesFiltrados.length === 0 ? (
-                    <p className="text-xs text-neutral-500 text-center py-4">Nenhum cliente encontrado.</p>
-                  ) : (
-                    clientesFiltrados.map((c) => (
-                      <div
-                        key={c.id}
-                        className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center justify-between gap-2"
+            {/* ABA AGENDA */}
+            {abaAdmin === "agenda" && (
+              <>
+                <div className="bg-neutral-900 border border-amber-500/30 p-5 rounded-2xl space-y-4">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">➕ Agendar Encaixe</h2>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    O encaixe é criado manualmente e ignora a trava de antecedência de 6 horas.
+                  </p>
+                  <form onSubmit={criarEncaixe} className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="Nome do Cliente"
+                      value={encaixeCliente}
+                      onChange={(e) => setEncaixeCliente(e.target.value)}
+                      className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                      required
+                    />
+                    <select
+                      value={encaixeServico}
+                      onChange={(e) => setEncaixeServico(e.target.value)}
+                      className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                    >
+                      <option value="">Selecione o serviço</option>
+                      {servicos.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nome} • {s.duracao} min • R$ {s.preco.toFixed(2)}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={encaixeDia}
+                        onChange={(e) => setEncaixeDia(e.target.value)}
+                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
                       >
-                        <div className="min-w-0">
-                          <h4 className="font-bold text-white text-xs truncate">
-                            {c.nome} <span className="text-neutral-500 font-normal">({c.apelido})</span>
+                        {horarios.map((h) => (
+                          <option key={h.dia} value={h.dia}>
+                            {h.dia}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="time"
+                        value={encaixeHorario}
+                        onChange={(e) => setEncaixeHorario(e.target.value)}
+                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                        required
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase tracking-wider transition"
+                    >
+                      Adicionar Encaixe
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">📅 Agenda de Atendimentos</h2>
+                  {agendamentos.length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-4">Nenhum agendamento.</p>
+                  ) : (
+                    agendamentos.map((a) => (
+                      <div
+                        key={a.id}
+                        className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-xs flex justify-between items-center"
+                      >
+                        <div>
+                          <h4 className="font-bold text-white flex items-center gap-2">
+                            {a.clienteNome}
+                            {a.eEncaixe && (
+                              <span className="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded font-bold uppercase">
+                                Encaixe
+                              </span>
+                            )}
+                            {a.eClube && (
+                              <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded font-bold uppercase">
+                                Clube
+                              </span>
+                            )}
                           </h4>
-                          <p className="text-[10px] text-neutral-400">📞 {c.telefone}</p>
-                          <p className="text-[10px] text-neutral-400">🎂 {c.nascimento}</p>
+                          <p className="text-[10px] text-neutral-400">
+                            {a.servico} • {a.duracao} min
+                          </p>
                         </div>
-                        <button
-                          onClick={() => abrirWhatsappCliente(c.telefone, c.nome)}
-                          className="px-3 py-2 bg-green-600 hover:bg-green-500 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition whitespace-nowrap flex-shrink-0"
-                        >
-                          WhatsApp
-                        </button>
+                        <div className="text-right">
+                          <span className="block font-bold text-amber-400">{a.horario}</span>
+                          <span className="block text-[10px] text-neutral-500">{a.dia}</span>
+                        </div>
                       </div>
                     ))
                   )}
                 </div>
-              )}
+              </>
+            )}
 
-              {/* ABA BANNERS */}
-              {abaAdmin === "banners" && (
+            {/* ABA SERVIÇOS */}
+            {abaAdmin === "servicos" && (
               <>
-              {/* GERENCIAR BANNERS DO CARROSSEL */}
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">
+                    ✂️ {servicoEditandoId ? "Editar Serviço" : "Cadastrar Serviço"}
+                  </h2>
+                  <form onSubmit={salvarServico} className="space-y-2">
+                    <input
+                      type="text"
+                      placeholder="Nome do serviço"
+                      value={servicoNome}
+                      onChange={(e) => setServicoNome(e.target.value)}
+                      className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                      required
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="Preço (R$)"
+                        value={servicoPreco}
+                        onChange={(e) => setServicoPreco(e.target.value)}
+                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                        required
+                      />
+                      <input
+                        type="number"
+                        placeholder="Duração (min)"
+                        value={servicoDuracao}
+                        onChange={(e) => setServicoDuracao(e.target.value)}
+                        className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                        required
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-neutral-300">
+                      <input
+                        type="checkbox"
+                        checked={servicoLongo}
+                        onChange={(e) => setServicoLongo(e.target.checked)}
+                        className="w-4 h-4 accent-amber-500"
+                      />
+                      Serviço longo (só pode ser agendado até 16:00)
+                    </label>
+                    <div>
+                      <label className="text-[11px] text-neutral-400 mb-1 block">Foto do serviço (galeria)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={lidarComUploadFotoServico}
+                        className="w-full text-xs text-neutral-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-500 file:text-black file:font-bold file:text-xs file:uppercase file:cursor-pointer bg-neutral-950 border border-neutral-800 rounded-lg p-1.5"
+                      />
+                    </div>
+                    {servicoFoto && (
+                      <img
+                        src={servicoFoto || "/placeholder.svg"}
+                        alt="Pré-visualização do serviço"
+                        className="w-full h-28 object-cover rounded-lg border border-neutral-800"
+                      />
+                    )}
+                    <div className="flex gap-2">
+                      {servicoEditandoId && (
+                        <button
+                          type="button"
+                          onClick={limparFormServico}
+                          className="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-lg uppercase transition"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg uppercase tracking-wider transition"
+                      >
+                        {servicoEditandoId ? "Salvar" : "Cadastrar"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">Serviços Cadastrados</h2>
+                  {servicos.map((s) => (
+                    <div
+                      key={s.id}
+                      className="p-2.5 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center gap-3"
+                    >
+                      <div className="w-12 h-12 bg-neutral-900 rounded-lg border border-neutral-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+                        {s.foto ? (
+                          <img src={s.foto || "/placeholder.svg"} alt={s.nome} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-lg">✂️</span>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-bold text-white text-xs">
+                          {s.nome}
+                          {s.longo && <span className="ml-1 text-[9px] text-amber-400">(até 16h)</span>}
+                        </h4>
+                        <p className="text-[10px] text-neutral-400">
+                          R$ {s.preco.toFixed(2)} • {s.duracao} min
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => editarServico(s)}
+                          className="px-2 py-1 bg-neutral-800 text-neutral-200 rounded text-[10px] hover:bg-neutral-700"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => excluirServico(s.id)}
+                          className="px-2 py-1 bg-red-950/60 text-red-400 rounded text-[10px] hover:bg-red-900/60"
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {/* ABA HORÁRIOS */}
+            {abaAdmin === "horarios" && (
+              <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                <h2 className="text-sm font-bold text-amber-500 uppercase">🕒 Horário de Funcionamento</h2>
+                <p className="text-[11px] text-neutral-400 leading-relaxed">
+                  Ative/desative dias e ajuste os horários de abertura e fechamento.
+                </p>
+                {horarios.map((h) => (
+                  <div
+                    key={h.dia}
+                    className={`p-3 rounded-xl border space-y-2 ${
+                      h.aberto ? "bg-neutral-950 border-neutral-800" : "bg-neutral-950/50 border-neutral-800/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className={`text-xs font-bold ${h.aberto ? "text-white" : "text-neutral-500"}`}>
+                        {h.dia}
+                      </span>
+                      <button
+                        onClick={() => alternarDiaAberto(h.dia)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition ${
+                          h.aberto
+                            ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                            : "bg-red-500/10 text-red-400 border border-red-500/30"
+                        }`}
+                      >
+                        {h.aberto ? "Aberto" : "Fechado"}
+                      </button>
+                    </div>
+                    {h.aberto && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-neutral-500 block mb-1">Abertura</label>
+                          <input
+                            type="time"
+                            value={h.abertura}
+                            onChange={(e) => atualizarHorarioDia(h.dia, "abertura", e.target.value)}
+                            className="w-full p-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-neutral-500 block mb-1">Fechamento</label>
+                          <input
+                            type="time"
+                            value={h.fechamento}
+                            onChange={(e) => atualizarHorarioDia(h.dia, "fechamento", e.target.value)}
+                            className="w-full p-2 bg-neutral-900 border border-neutral-800 rounded-lg text-xs text-white"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ABA CLIENTES */}
+            {abaAdmin === "clientes" && (
+              <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                <h2 className="text-sm font-bold text-amber-500 uppercase">👥 Clientes</h2>
+                <input
+                  type="text"
+                  placeholder="Buscar por nome ou apelido..."
+                  value={buscaCliente}
+                  onChange={(e) => setBuscaCliente(e.target.value)}
+                  className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                />
+                {clientesFiltrados.length === 0 ? (
+                  <p className="text-xs text-neutral-500 text-center py-4">Nenhum cliente encontrado.</p>
+                ) : (
+                  clientesFiltrados.map((c) => (
+                    <div
+                      key={c.id}
+                      className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-white text-xs truncate">
+                          {c.nome} <span className="text-neutral-500 font-normal">({c.apelido})</span>
+                        </h4>
+                        <p className="text-[10px] text-neutral-400">📞 {c.telefone}</p>
+                        <p className="text-[10px] text-neutral-400">🎂 {c.nascimento}</p>
+                      </div>
+                      <button
+                        onClick={() => abrirWhatsappCliente(c.telefone, c.nome)}
+                        className="px-3 py-2 bg-green-600 hover:bg-green-500 text-white font-bold text-[10px] rounded-lg uppercase tracking-wider transition whitespace-nowrap flex-shrink-0"
+                      >
+                        WhatsApp
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* ABA CLUBE */}
+            {abaAdmin === "clube" && (
+              <>
+                <div className="bg-neutral-900 border border-yellow-500/30 p-5 rounded-2xl space-y-4">
+                  <h2 className="text-sm font-bold text-yellow-400 uppercase flex items-center justify-between">
+                    <span>⏳ Solicitações Pendentes</span>
+                    <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
+                      {listaMembrosClube.filter((m) => m.status === "Pendente").length}
+                    </span>
+                  </h2>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    O cliente só usufrui dos benefícios após você confirmar o pagamento abaixo.
+                  </p>
+                  {listaMembrosClube.filter((m) => m.status === "Pendente").length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-4">Nenhuma solicitação pendente.</p>
+                  ) : (
+                    listaMembrosClube
+                      .filter((m) => m.status === "Pendente")
+                      .map((m) => (
+                        <div
+                          key={m.id}
+                          className="p-3 bg-neutral-950 rounded-xl border border-yellow-500/20 text-xs space-y-3"
+                        >
+                          <div>
+                            <h4 className="font-bold text-white">{m.nome}</h4>
+                            <p className="text-[10px] text-neutral-400">
+                              Plano solicitado: <span className="text-amber-400 font-bold">{m.plano}</span>
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => ativarMembro(m.id)}
+                            className="w-full py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold text-xs rounded-lg uppercase tracking-wider transition"
+                          >
+                            Confirmar Pagamento / Ativar Membro
+                          </button>
+                        </div>
+                      ))
+                  )}
+                </div>
+
+                <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-3">
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">💎 Membros Ativos</h2>
+                  {listaMembrosClube.filter((m) => m.status === "Ativo").length === 0 ? (
+                    <p className="text-xs text-neutral-500 text-center py-4">Nenhum membro ativo.</p>
+                  ) : (
+                    listaMembrosClube
+                      .filter((m) => m.status === "Ativo")
+                      .map((m) => (
+                        <div
+                          key={m.id}
+                          className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-xs flex justify-between items-center"
+                        >
+                          <div>
+                            <h4 className="font-bold text-white">{m.nome}</h4>
+                            <p className="text-[10px] text-neutral-400">
+                              Plano {m.plano} • desde {m.inicio}
+                            </p>
+                          </div>
+                          <span className="text-[10px] bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-1 rounded-full font-bold uppercase">
+                            Ativo
+                          </span>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* ABA BANNERS */}
+            {abaAdmin === "banners" && (
               <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
                 <h2 className="text-sm font-bold text-amber-500 uppercase">📸 Banners da Tela Inicial</h2>
-
                 <form onSubmit={adicionarBanner} className="space-y-2">
-                  {/* Upload direto da galeria/câmera do celular */}
                   <div>
                     <label className="text-[11px] text-neutral-400 mb-1 block">Enviar foto do celular</label>
                     <input
@@ -1694,12 +1685,11 @@ export default function BarbeariaHiroschi() {
                       className="w-full text-xs text-neutral-300 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-500 file:text-black file:font-bold file:text-xs file:uppercase file:cursor-pointer bg-neutral-950 border border-neutral-800 rounded-lg p-1.5"
                     />
                   </div>
-
                   {novoBannerArquivo && (
                     <div className="relative">
                       <img
                         src={novoBannerArquivo || "/placeholder.svg"}
-                        alt="Pré-visualização da foto selecionada"
+                        alt="Pré-visualização"
                         className="w-full h-32 object-cover rounded-lg border border-neutral-800"
                       />
                       <button
@@ -1711,13 +1701,11 @@ export default function BarbeariaHiroschi() {
                       </button>
                     </div>
                   )}
-
                   <div className="flex items-center gap-2 text-[10px] text-neutral-500 uppercase">
                     <div className="h-px flex-1 bg-neutral-800" />
                     <span>ou cole uma URL</span>
                     <div className="h-px flex-1 bg-neutral-800" />
                   </div>
-
                   <input
                     type="url"
                     placeholder="URL da Imagem (opcional)"
@@ -1727,30 +1715,36 @@ export default function BarbeariaHiroschi() {
                   />
                   <input
                     type="text"
-                    placeholder="Título / Legenda do Corte"
+                    placeholder="Título / Legenda"
                     value={novoBannerTitulo}
                     onChange={(e) => setNovoBannerTitulo(e.target.value)}
                     className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
                     required
                   />
-                  <button type="submit" className="w-full py-2 bg-amber-500 text-black font-bold text-xs rounded-lg uppercase">
+                  <button
+                    type="submit"
+                    className="w-full py-2 bg-amber-500 text-black font-bold text-xs rounded-lg uppercase"
+                  >
                     Adicionar Foto
                   </button>
                 </form>
 
-                <div className="space-y-2 pt-2">
+                <div className="space-y-2">
                   {fotosBanners.map((b) => (
                     <div
                       key={b.id}
-                      className="flex items-center justify-between p-2 bg-neutral-950 rounded-lg border border-neutral-800 text-xs"
+                      className="p-2 bg-neutral-950 rounded-xl border border-neutral-800 flex items-center gap-3"
                     >
-                      <div className="flex items-center space-x-2">
-                        <img src={b.url || "/placeholder.svg"} alt={b.titulo} className="w-10 h-10 object-cover rounded" />
-                        <span className="font-medium text-white">{b.titulo}</span>
-                      </div>
+                      <img
+                        src={b.url || "/placeholder.svg"}
+                        alt={b.titulo}
+                        crossOrigin="anonymous"
+                        className="w-14 h-14 object-cover rounded-lg flex-shrink-0"
+                      />
+                      <span className="flex-1 text-xs font-medium text-white">{b.titulo}</span>
                       <button
                         onClick={() => removerBanner(b.id)}
-                        className="text-red-400 hover:text-red-300 px-2 py-1"
+                        className="px-2 py-1 bg-red-950/60 text-red-400 rounded text-[10px] hover:bg-red-900/60"
                       >
                         Excluir
                       </button>
@@ -1758,106 +1752,10 @@ export default function BarbeariaHiroschi() {
                   ))}
                 </div>
               </div>
-              </>
-              )}
-
-              {/* ABA CLUBE */}
-              {abaAdmin === "clube" && (
-              <>
-              {/* SOLICITAÇÕES PENDENTES DO CLUBE */}
-              <div className="bg-neutral-900 border border-yellow-500/30 p-5 rounded-2xl space-y-4">
-                <h2 className="text-sm font-bold text-yellow-400 uppercase flex items-center justify-between">
-                  <span>⏳ Solicitações Pendentes do Clube</span>
-                  <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full">
-                    {listaMembrosClube.filter((m) => m.status === "Pendente").length}
-                  </span>
-                </h2>
-
-                <p className="text-[11px] text-neutral-400 leading-relaxed">
-                  O cliente só passa a usufruir dos benefícios do plano após você confirmar o pagamento abaixo.
-                </p>
-
-                <div className="space-y-2">
-                  {listaMembrosClube.filter((m) => m.status === "Pendente").length === 0 ? (
-                    <p className="text-xs text-neutral-500 text-center py-4">Nenhuma solicitação pendente.</p>
-                  ) : (
-                    listaMembrosClube
-                      .filter((m) => m.status === "Pendente")
-                      .map((membro) => (
-                        <div
-                          key={membro.id}
-                          className="p-3 bg-neutral-950 rounded-xl border border-yellow-500/20 text-xs space-y-3"
-                        >
-                          <div>
-                            <h4 className="font-bold text-white">{membro.nome}</h4>
-                            <p className="text-[10px] text-neutral-400">
-                              Plano solicitado: <span className="text-amber-400 font-bold">{membro.plano}</span>
-                            </p>
-                          </div>
-                          <button
-                            onClick={() => ativarMembro(membro.id)}
-                            className="w-full py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold text-xs rounded-lg uppercase tracking-wider transition"
-                          >
-                            Confirmar Pagamento / Ativar Membro
-                          </button>
-                        </div>
-                      ))
-                  )}
-                </div>
-              </div>
-
-              {/* GERENCIAR MEMBROS DO CLUBE */}
-              <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
-                <h2 className="text-sm font-bold text-amber-500 uppercase">💎 Gerenciar Membros do Clube</h2>
-
-                <div className="space-y-2">
-                  {listaMembrosClube.filter((m) => m.status !== "Pendente").length === 0 ? (
-                    <p className="text-xs text-neutral-500 text-center py-4">Nenhum membro ativo no momento.</p>
-                  ) : null}
-                  {listaMembrosClube
-                    .filter((m) => m.status !== "Pendente")
-                    .map((membro) => (
-                    <div
-                      key={membro.id}
-                      className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-xs flex justify-between items-center"
-                    >
-                      <div>
-                        <h4 className="font-bold text-white">{membro.nome}</h4>
-                        <p className="text-[10px] text-neutral-400">
-                          Plano {membro.plano} • Status:{" "}
-                          <span className={membro.status === "Ativo" ? "text-green-400" : "text-red-400"}>
-                            {membro.status}
-                          </span>
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          setListaMembrosClube(
-                            listaMembrosClube.map((m) =>
-                              m.id === membro.id
-                                ? {
-                                    ...m,
-                                    status: m.status === "Ativo" ? "Suspenso" : "Ativo",
-                                  }
-                                : m,
-                            ),
-                          )
-                        }}
-                        className="px-2 py-1 bg-neutral-800 text-neutral-300 rounded text-[10px]"
-                      >
-                        {membro.status === "Ativo" ? "Suspender" : "Ativar"}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              </>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
