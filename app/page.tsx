@@ -297,7 +297,7 @@ export default function BarbeariaHiroschi() {
       valorPago: 60,
       metodo: "PIX",
       eClube: false,
-      data: "Hoje",
+      data: new Date().toISOString().slice(0, 10),
     },
     {
       id: "c2",
@@ -308,7 +308,7 @@ export default function BarbeariaHiroschi() {
       valorPago: 35,
       metodo: "Cartão",
       eClube: false,
-      data: "Hoje",
+      data: new Date().toISOString().slice(0, 10),
     },
     {
       id: "c3",
@@ -319,13 +319,14 @@ export default function BarbeariaHiroschi() {
       valorPago: 0,
       metodo: "Clube Hiroschi",
       eClube: true,
-      data: "Hoje",
+      data: new Date().toISOString().slice(0, 10),
     },
   ])
   const [caixaCliente, setCaixaCliente] = useState("")
   const [caixaServico, setCaixaServico] = useState("")
   const [caixaValor, setCaixaValor] = useState("")
   const [caixaMetodo, setCaixaMetodo] = useState<MovimentacaoCaixa["metodo"]>("PIX")
+  const [caixaDataSelecionada, setCaixaDataSelecionada] = useState(() => new Date().toISOString().slice(0, 10))
 
   // ============================================
   // CARROSSEL AUTOMÁTICO
@@ -692,7 +693,7 @@ export default function BarbeariaHiroschi() {
         valorPago: eClube ? 0 : valor,
         metodo: caixaMetodo,
         eClube,
-        data: "Hoje",
+        data: new Date().toISOString().slice(0, 10),
       },
       ...prev,
     ])
@@ -702,11 +703,33 @@ export default function BarbeariaHiroschi() {
     setCaixaMetodo("PIX")
   }
 
-  const totalPix = historicoCaixa.filter((m) => m.metodo === "PIX").reduce((a, m) => a + m.valorPago, 0)
-  const totalCartao = historicoCaixa.filter((m) => m.metodo === "Cartão").reduce((a, m) => a + m.valorPago, 0)
-  const totalDinheiro = historicoCaixa.filter((m) => m.metodo === "Dinheiro").reduce((a, m) => a + m.valorPago, 0)
-  const faturamentoReal = totalPix + totalCartao + totalDinheiro
-  const cobertoClube = historicoCaixa.filter((m) => m.eClube).reduce((a, m) => a + m.valorBruto, 0)
+  const dataHoje = new Date()
+  const paraDataLocal = (valor: string) => {
+    if (valor === "Hoje") return hojeISO
+    return valor
+  }
+  const dataCaixaSelecionada = new Date(`${caixaDataSelecionada}T12:00:00`)
+  const inicioSemana = new Date(dataCaixaSelecionada)
+  inicioSemana.setDate(dataCaixaSelecionada.getDate() - 6)
+  const mesmoDia = (data: string, alvo: Date) => paraDataLocal(data) === alvo.toISOString().slice(0, 10)
+  const dentroDoPeriodo = (data: string, inicio: Date, fim: Date) => {
+    const valor = new Date(`${paraDataLocal(data)}T12:00:00`).getTime()
+    return valor >= inicio.getTime() && valor <= fim.getTime()
+  }
+  const caixaDoDia = historicoCaixa.filter((m) => mesmoDia(m.data, dataCaixaSelecionada))
+  const caixaSemana = historicoCaixa.filter((m) => dentroDoPeriodo(m.data, inicioSemana, dataCaixaSelecionada))
+  const inicioMes = new Date(dataCaixaSelecionada.getFullYear(), dataCaixaSelecionada.getMonth(), 1, 12)
+  const caixaMes = historicoCaixa.filter((m) => dentroDoPeriodo(m.data, inicioMes, dataCaixaSelecionada))
+  const resumirCaixa = (lancamentos: MovimentacaoCaixa[]) => ({
+    PIX: lancamentos.filter((m) => m.metodo === "PIX").reduce((a, m) => a + m.valorPago, 0),
+    Cartão: lancamentos.filter((m) => m.metodo === "Cartão").reduce((a, m) => a + m.valorPago, 0),
+    Dinheiro: lancamentos.filter((m) => m.metodo === "Dinheiro").reduce((a, m) => a + m.valorPago, 0),
+  })
+  const resumoDia = resumirCaixa(caixaDoDia)
+  const resumoSemana = resumirCaixa(caixaSemana)
+  const resumoMes = resumirCaixa(caixaMes)
+  const faturamentoReal = resumoDia.PIX + resumoDia.Cartão + resumoDia.Dinheiro
+  const cobertoClube = caixaDoDia.filter((m) => m.eClube).reduce((a, m) => a + m.valorBruto, 0)
 
   // ============================================
   // BANNERS
@@ -1233,26 +1256,38 @@ export default function BarbeariaHiroschi() {
               <>
                 <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4">
                   <h2 className="text-lg font-black text-amber-500 uppercase tracking-wide flex items-center justify-between">
-                    <span>💰 Caixa Inteligente</span>
-                    <span className="text-xs text-neutral-400 font-normal">Hoje</span>
+                    <span>Caixa Inteligente</span>
+                    <span className="text-xs text-neutral-400 font-normal">{caixaDataSelecionada}</span>
                   </h2>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center">
-                      <p className="text-[10px] text-neutral-400 uppercase">PIX</p>
-                      <p className="text-sm font-bold text-white">R$ {totalPix.toFixed(2)}</p>
-                    </div>
-                    <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center">
-                      <p className="text-[10px] text-neutral-400 uppercase">Cartão</p>
-                      <p className="text-sm font-bold text-white">R$ {totalCartao.toFixed(2)}</p>
-                    </div>
-                    <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 text-center">
-                      <p className="text-[10px] text-neutral-400 uppercase">Dinheiro</p>
-                      <p className="text-sm font-bold text-white">R$ {totalDinheiro.toFixed(2)}</p>
-                    </div>
+                  <label className="block text-xs text-neutral-400">
+                    Filtrar por data
+                    <input
+                      type="date"
+                      value={caixaDataSelecionada}
+                      onChange={(e) => setCaixaDataSelecionada(e.target.value)}
+                      className="mt-1 w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white"
+                    />
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {[
+                      { titulo: "Faturamento do Dia", resumo: resumoDia },
+                      { titulo: "Resumo dos Últimos 7 Dias", resumo: resumoSemana },
+                      { titulo: "Resumo Mensal", resumo: resumoMes },
+                    ].map((periodo) => (
+                      <div key={periodo.titulo} className="p-3 bg-neutral-950 rounded-xl border border-neutral-800">
+                        <p className="text-[10px] text-amber-400 uppercase font-bold mb-2">{periodo.titulo}</p>
+                        <div className="space-y-1 text-xs text-neutral-300">
+                          <p className="flex justify-between"><span>PIX</span><strong>R$ {periodo.resumo.PIX.toFixed(2)}</strong></p>
+                          <p className="flex justify-between"><span>Cartão</span><strong>R$ {periodo.resumo.Cartão.toFixed(2)}</strong></p>
+                          <p className="flex justify-between"><span>Dinheiro</span><strong>R$ {periodo.resumo.Dinheiro.toFixed(2)}</strong></p>
+                          <p className="flex justify-between border-t border-neutral-800 pt-1 mt-1 text-green-400"><span>Total</span><strong>R$ {(periodo.resumo.PIX + periodo.resumo.Cartão + periodo.resumo.Dinheiro).toFixed(2)}</strong></p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="p-3 bg-green-500/10 rounded-xl border border-green-500/30 text-center">
-                      <p className="text-[10px] text-green-400 uppercase">Faturamento Real</p>
+                      <p className="text-[10px] text-green-400 uppercase">Faturamento do Dia</p>
                       <p className="text-base font-black text-green-400">R$ {faturamentoReal.toFixed(2)}</p>
                     </div>
                     <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/30 text-center">
@@ -1311,8 +1346,9 @@ export default function BarbeariaHiroschi() {
                 </div>
 
                 <div className="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-2">
-                  <h2 className="text-sm font-bold text-amber-500 uppercase">Movimentações de Hoje</h2>
-                  {historicoCaixa.map((m) => (
+                  <h2 className="text-sm font-bold text-amber-500 uppercase">Movimentações de {caixaDataSelecionada}</h2>
+                  {caixaDoDia.length === 0 && <p className="text-xs text-neutral-500">Nenhum lançamento nesta data.</p>}
+                  {caixaDoDia.map((m) => (
                     <div
                       key={m.id}
                       className="p-2.5 bg-neutral-950 rounded-lg border border-neutral-800 flex justify-between items-center text-xs"
