@@ -83,7 +83,7 @@ interface ClienteCadastro {
 // ============================================
 // CONSTANTES
 // ============================================
-const NUMERO_WHATSAPP_BARBEARIA = "5511999998888"
+const NUMERO_WHATSAPP_BARBEARIA = "5521979012977"
 const SENHA_ADMIN = "77186800"
 const PLANOS = [
   { nome: "Bronze" as const, preco: "R$ 49,90/mês", descricao: "2 cortes por mês" },
@@ -347,7 +347,7 @@ export default function BarbeariaHiroschi() {
   )
   const temServicoLongoSelecionado = servicosSelecionados.some((id) => servicos.find((s) => s.id === id)?.longo)
 
-  // Gera horários livres respeitando funcionamento, duração, trava de 6h e trava de serviço longo (16:00)
+  // Gera horários livres respeitando funcionamento, duração, trava de 3h e trava de serviço longo (16:00)
   const gerarHorariosDisponiveis = (dia: string, duracao: number, ignorarTravas = false) => {
     const config = horarios.find((h) => h.dia === dia)
     if (!config || !config.aberto || duracao <= 0) return []
