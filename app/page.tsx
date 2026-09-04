@@ -90,7 +90,7 @@ interface ClienteCadastro {
 // ============================================
 // CONSTANTES
 // ============================================
-const NUMERO_WHATSAPP_BARBEARIA = "5511999998888"
+const NUMERO_WHATSAPP_BARBEARIA = "5521979012977"
 const SENHA_ADMIN = "77186800"
 const PLANOS = [
   { nome: "Bronze" as const, preco: "R$ 49,90/mês", descricao: "2 cortes por mês" },
@@ -640,11 +640,10 @@ export default function BarbeariaHiroschi() {
     if (!termo) return true
     return c.nome.toLowerCase().includes(termo) || c.apelido.toLowerCase().includes(termo)
   })
-  const abrirWhatsappCliente = (telefone: string, nome: string) => {
-    const numero = telefone.replace(/\D/g, "")
-    const completo = numero.startsWith("55") ? numero : `55${numero}`
+  const abrirWhatsappCliente = (_telefone: string, nome: string) => {
     const msg = encodeURIComponent(`Olá ${nome.split(" ")[0]}, aqui é da Barbearia Hiroschi! `)
-    window.open(`https://wa.me/${completo}?text=${msg}`, "_blank")
+    // Todas as comunicações da barbearia usam o número oficial de destino.
+    window.open(`https://wa.me/${NUMERO_WHATSAPP_BARBEARIA}?text=${msg}`, "_blank")
   }
 
   // ============================================
