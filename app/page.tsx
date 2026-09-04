@@ -72,6 +72,13 @@ interface HorarioDia {
   fechamento: string
 }
 
+interface ExcecaoHorario {
+  data: string
+  abertura: string
+  fechamento: string
+  aberto: boolean
+}
+
 interface ClienteCadastro {
   id: string
   nome: string
@@ -171,6 +178,7 @@ export default function BarbeariaHiroschi() {
   // AGENDAMENTO
   // ------------------------------------------
   const [diaSelecionado, setDiaSelecionado] = useState("")
+  const [dataSelecionada, setDataSelecionada] = useState("")
   const [servicosSelecionados, setServicosSelecionados] = useState<string[]>([])
   const [horarioSelecionado, setHorarioSelecionado] = useState("")
   const [formaPagamento, setFormaPagamento] = useState<"Pagar no Local" | "PIX" | "">("")
@@ -251,6 +259,11 @@ export default function BarbeariaHiroschi() {
     { dia: "Sexta", aberto: true, abertura: "09:00", fechamento: "19:00" },
     { dia: "Sábado", aberto: true, abertura: "09:00", fechamento: "19:00" },
   ])
+  const [excecoesHorario, setExcecoesHorario] = useState<ExcecaoHorario[]>([])
+  const [novaExcecaoData, setNovaExcecaoData] = useState("")
+  const [novaExcecaoAbertura, setNovaExcecaoAbertura] = useState("08:00")
+  const [novaExcecaoFechamento, setNovaExcecaoFechamento] = useState("20:00")
+  const [novaExcecaoAberta, setNovaExcecaoAberta] = useState(true)
 
   // ------------------------------------------
   // CLIENTES
@@ -335,7 +348,13 @@ export default function BarbeariaHiroschi() {
   const minutosParaHora = (min: number) =>
     `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`
 
+  const hojeISO = new Date().toISOString().slice(0, 10)
   const nomeDiaHoje = DIAS_SEMANA[new Date().getDay()]
+  const obterDiaDaData = (data: string) => {
+    if (!data) return ""
+    const [ano, mes, dia] = data.split("-").map(Number)
+    return DIAS_SEMANA[new Date(ano, mes - 1, dia).getDay()]
+  }
 
   const duracaoTotalSelecionada = servicosSelecionados.reduce(
     (acc, id) => acc + (servicos.find((s) => s.id === id)?.duracao || 0),
@@ -347,9 +366,13 @@ export default function BarbeariaHiroschi() {
   )
   const temServicoLongoSelecionado = servicosSelecionados.some((id) => servicos.find((s) => s.id === id)?.longo)
 
-  // Gera horários livres respeitando funcionamento, duração, trava de 6h e trava de serviço longo (16:00)
+  // Gera horários livres: antecedência mínima de 3 horas no mesmo dia.
   const gerarHorariosDisponiveis = (dia: string, duracao: number, ignorarTravas = false) => {
-    const config = horarios.find((h) => h.dia === dia)
+    const excecao = excecoesHorario.find((e) => e.data === dataSelecionada)
+    const configBase = horarios.find((h) => h.dia === dia)
+    const config = excecao
+      ? { dia, aberto: excecao.aberto, abertura: excecao.abertura, fechamento: excecao.fechamento }
+      : configBase
     if (!config || !config.aberto || duracao <= 0) return []
 
     const inicio = horaParaMinutos(config.abertura)
@@ -372,7 +395,7 @@ export default function BarbeariaHiroschi() {
 
       if (!ignorarTravas) {
         // Trava de 6 horas para agendamentos no mesmo dia
-        if (ehHoje && t < minutosAgora + 360) continue
+        if (ehHoje && t < minutosAgora + 180) continue
         // Trava de serviço longo (Reflexo / Descoloração): só até 16:00
         if (temServicoLongoSelecionado && t >= 16 * 60) continue
       }
@@ -594,6 +617,19 @@ export default function BarbeariaHiroschi() {
     setHorarios((prev) => prev.map((h) => (h.dia === dia ? { ...h, aberto: !h.aberto } : h)))
   const atualizarHorarioDia = (dia: string, campo: "abertura" | "fechamento", valor: string) =>
     setHorarios((prev) => prev.map((h) => (h.dia === dia ? { ...h, [campo]: valor } : h)))
+
+  const salvarExcecaoHorario = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!novaExcecaoData) return
+    setExcecoesHorario((prev) => [
+      ...prev.filter((item) => item.data !== novaExcecaoData),
+      { data: novaExcecaoData, abertura: novaExcecaoAbertura, fechamento: novaExcecaoFechamento, aberto: novaExcecaoAberta },
+    ].sort((a, b) => a.data.localeCompare(b.data)))
+    setNovaExcecaoData("")
+  }
+
+  const removerExcecaoHorario = (data: string) =>
+    setExcecoesHorario((prev) => prev.filter((item) => item.data !== data))
 
   // ============================================
   // CLIENTES
@@ -930,26 +966,33 @@ export default function BarbeariaHiroschi() {
                   )}
                 </div>
 
-                {/* DIA */}
+                {/* CALENDÁRIO EXTENSO */}
                 <div className="space-y-2">
-                  <label className="text-xs text-neutral-400">Escolha o Dia</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {horarios
-                      .filter((h) => h.aberto)
-                      .map((h) => (
-                        <button
-                          key={h.dia}
-                          onClick={() => lidarComSelecaoDeDia(h.dia)}
-                          className={`p-3 rounded-xl border text-sm font-medium transition ${
-                            diaSelecionado === h.dia
-                              ? "bg-amber-500 border-amber-500 text-black font-bold"
-                              : "bg-neutral-900 border-neutral-800 text-neutral-300"
-                          }`}
-                        >
-                          {h.dia}
-                        </button>
-                      ))}
-                  </div>
+                  <label htmlFor="data-agendamento" className="text-xs text-neutral-400">
+                    Escolha a data (incluindo meses futuros)
+                  </label>
+                  <input
+                    id="data-agendamento"
+                    type="date"
+                    min={hojeISO}
+                    value={dataSelecionada}
+                    onChange={(e) => {
+                      const data = e.target.value
+                      const dia = obterDiaDaData(data)
+                      setDataSelecionada(data)
+                      setDiaSelecionado(dia)
+                      setHorarioSelecionado("")
+                      setFormaPagamento("")
+                      setErroAgendamento("")
+                      if (clubeAtivo && (dia === "Sexta" || dia === "Sábado")) {
+                        setErroAgendamento("Nas sextas e sábados o Clube Hiroschi não cobre o atendimento; o valor será cobrado à parte.")
+                      }
+                    }}
+                    className="w-full p-3 bg-neutral-900 border border-neutral-800 rounded-xl text-white"
+                  />
+                  {dataSelecionada && (
+                    <p className="text-xs text-amber-400">{obterDiaDaData(dataSelecionada)} — data selecionada</p>
+                  )}
                 </div>
 
                 {erroAgendamento && (
@@ -1562,6 +1605,18 @@ export default function BarbeariaHiroschi() {
                     )}
                   </div>
                 ))}
+
+                <div className="mt-5 pt-5 border-t border-neutral-800 space-y-3">
+                  <h3 className="text-sm font-bold text-amber-400 uppercase">Exceções / Horários Especiais por Data</h3>
+                  <p className="text-[11px] text-neutral-400">Defina horários diferentes para datas futuras, sem alterar a regra semanal.</p>
+                  <form onSubmit={salvarExcecaoHorario} className="space-y-2">
+                    <input type="date" min={hojeISO} value={novaExcecaoData} onChange={(e) => setNovaExcecaoData(e.target.value)} required className="w-full p-2.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white" />
+                    <label className="flex items-center gap-2 text-xs text-neutral-300"><input type="checkbox" checked={novaExcecaoAberta} onChange={(e) => setNovaExcecaoAberta(e.target.checked)} className="accent-amber-500" /> Dia aberto</label>
+                    {novaExcecaoAberta && <div className="grid grid-cols-2 gap-2"><input type="time" value={novaExcecaoAbertura} onChange={(e) => setNovaExcecaoAbertura(e.target.value)} className="p-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white" /><input type="time" value={novaExcecaoFechamento} onChange={(e) => setNovaExcecaoFechamento(e.target.value)} className="p-2 bg-neutral-950 border border-neutral-800 rounded-lg text-xs text-white" /></div>}
+                    <button type="submit" className="w-full py-2.5 bg-amber-500 text-black font-bold text-xs rounded-lg uppercase">Salvar exceção</button>
+                  </form>
+                  {excecoesHorario.map((excecao) => <div key={excecao.data} className="flex items-center justify-between gap-2 p-3 bg-neutral-950 border border-neutral-800 rounded-lg text-xs"><span>{new Date(`${excecao.data}T12:00:00`).toLocaleDateString("pt-BR")} — {excecao.aberto ? `${excecao.abertura} às ${excecao.fechamento}` : "Fechado"}</span><button type="button" onClick={() => removerExcecaoHorario(excecao.data)} className="text-red-400 hover:text-red-300">Remover</button></div>)}
+                </div>
               </div>
             )}
 
