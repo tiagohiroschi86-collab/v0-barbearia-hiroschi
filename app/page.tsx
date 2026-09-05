@@ -5,7 +5,7 @@ import { useEffect } from "react"
 export default function BarbeariaHiroschi() {
   useEffect(() => {
     const loadFirebase = async () => {
-      const { initializeApp } = await import("firebase/app")
+      const { initializeApp, getApps, getApp } = await import("firebase/app")
       const {
         getFirestore,
         collection,
@@ -21,16 +21,17 @@ export default function BarbeariaHiroschi() {
       } = await import("firebase/firestore")
 
       const firebaseConfig = {
-        apiKey: "AIzaSyBg_BaH-0ECyJo8h0oOmTlZgt1FU3uCevQ",
-        authDomain: "barbearia-do-hiroschi.firebaseapp.com",
-        projectId: "barbearia-do-hiroschi",
-        storageBucket: "barbearia-do-hiroschi.firebasestorage.app",
-        messagingSenderId: "630587096303",
-        appId: "1:630587096303:web:cacab13a15420e4a5d6f1a",
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "AIzaSyBg_BaH-0ECyJo8h0oOmTlZgt1FU3uCevQ",
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "barbearia-do-hiroschi.firebaseapp.com",
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "barbearia-do-hiroschi",
+        storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "barbearia-do-hiroschi.firebasestorage.app",
+        messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "630587096303",
+        appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "1:630587096303:web:cacab13a15420e4a5d6f1a",
         measurementId: "G-HNQ8SB9ZYT",
       }
 
-      const app = initializeApp(firebaseConfig)
+      // Reutiliza o app existente para compatibilidade com React Strict Mode e HMR.
+      const app = getApps().length ? getApp() : initializeApp(firebaseConfig)
       const db = getFirestore(app)
 
       ;(window as any).firebaseDb = db
