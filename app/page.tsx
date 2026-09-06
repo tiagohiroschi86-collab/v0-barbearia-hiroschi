@@ -3,288 +3,103 @@
 import { useEffect, useState } from "react"
 
 export default function BarbeariaHiroschi() {
+ // Estados da Aplicação
+ const [telaAtual, setTelaAtual] = useState<"login" | "cadastro" | "menu" | "agendamento" | "pagamento" | "admin">("login")
+ const [abaAdmin, setAbaAdmin] = useState<"agenda" | "caixa" | "cliente" | "clube" | "servicos" | "produtos" | "horarios" | "configuracao">("agenda")
+ 
+ // Dados do Cliente
+ const [whatsappInput, setWhatsappInput] = useState("")
+ const [cliente, setCliente] = useState<{ nome: string; apelido: string; whatsapp: string } | null>(null)
+ const [mostrarSenhaAdmin, setMostrarSenhaAdmin] = useState(false)
+ const [senhaAdminInput, setSenhaAdminInput] = useState("")
+
+ // Opções de Pagamento e Pix
+ const [formaPagamento, setFormaPagamento] = useState<"local" | "pix" | null>(null)
+ const [tempoPix, setTempoPix] = useState(600) // 10 minutos
+ const [timerAtivo, setTimerAtivo] = useState(false)
+
+ // Cores do Tema Dinâmico
+ const [corPrimaria, setCorPrimaria] = useState("#d4af37") // Dourado padrão
+ const [corFundo, setCorFundo] = useState("#121212") // Escuro
+ const [corTexto, setCorTexto] = useState("#ffffff")
+
+ // Carrossel de Cortes
+ const [slideAtual, setSlideAtual] = useState(0)
+ const fotosCortes = [
+   "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=600&q=80",
+   "https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&w=600&q=80",
+   "https://images.unsplash.com/photo-1599351431202-1e0f0137899a?auto=format&fit=crop&w=600&q=80"
+ ]
+
+ // Instância do Firebase
+ const [db, setDb] = useState(null)
+
  useEffect(() => {
-   const loadFirebase = async () => {
-     const { initializeApp } = await import("firebase/app")
-     const {
-       getFirestore,
-       collection,
-       addDoc,
-       getDocs,
-       updateDoc,
-       query,
-       where,
-       deleteDoc,
-       doc,
-       setDoc,
-       getDoc,
-     } = await import("firebase/firestore")
+   const initFirebase = async () => {
+     try {
+       const { initializeApp } = await import("firebase/app")
+       const { getFirestore } = await import("firebase/firestore")
 
-     const firebaseConfig = {
-       apiKey: "AIzaSyBg_BaH-0ECyJo8h0oOmTlZgt1FU3uCevQ",
-       authDomain: "barbearia-do-hiroschi.firebaseapp.com",
-       projectId: "barbearia-do-hiroschi",
-       storageBucket: "barbearia-do-hiroschi.firebasestorage.app",
-       messagingSenderId: "630587096303",
-       appId: "1:630587096303:web:cacab13a15420e4a5d6f1a",
-       measurementId: "G-HNQ8SB9ZYT",
+       const firebaseConfig = {
+         apiKey: "AIzaSyBg_BaH-0ECyJo8h0oOmTlZgt1FU3uCevQ",
+         authDomain: "barbearia-do-hiroschi.firebaseapp.com",
+         projectId: "barbearia-do-hiroschi",
+         storageBucket: "barbearia-do-hiroschi.firebasestorage.app",
+         messagingSenderId: "630587096303",
+         appId: "1:630587096303:web:cacab13a15420e4a5d6f1a",
+         measurementId: "G-HNQ8SB9ZYT",
+       }
+
+       const app = initializeApp(firebaseConfig)
+       const database = getFirestore(app)
+       setDb(database)
+     } catch (err) {
+       console.error("Erro Firebase:", err)
      }
-
-     const app = initializeApp(firebaseConfig)
-     const db = getFirestore(app)
-
-     ;(window as any).firebaseDb = db
-     ;(window as any).firebaseUtils = {
-       collection,
-       addDoc,
-       getDocs,
-       updateDoc,
-       query,
-       where,
-       deleteDoc,
-       doc,
-       setDoc,
-       getDoc,
-     }
-
-     initApp()
    }
-
-   const initApp = () => {
-     const db = (window as any).firebaseDb
-     const { collection, addDoc, getDocs, updateDoc, query, where, deleteDoc, doc, setDoc, getDoc } = (window as any).firebaseUtils
-
-     let listaServicosLocal: any[] = []
-     let clienteNome = ""
-     let clienteApelido = ""
-     let clienteTelefone = ""
-     let clienteAniversario = ""
-     let servicosSelecionados: any[] = []
-     let planoClubeSelecionado: { nome: string; valor: string } | null = null
-     let horarioSelecionado: string | null = null
-     let formaPagamentoSelecionada: "local" | "pix" | null = null
-     let ultimoAgendamento: any = null
-     let clienteEhMembroClube = false
-     let clienteCategoriaClube: string | null = null
-     let temporizadorPix: any = null
-     let tempoRestantePix = 600 // 10 minutos
-
-     const configFuncionamento: {
-       horarios: Record
-       diasBloqueados: string[]
-       excecoesHorarios: Record
-       temaCorPrimaria: string
-       fonteFamilia: string
-     } = {
-       horarios: {
-         "2": { abertura: "09:00", fechamento: "19:00", fechado: false },
-         "3": { abertura: "09:00", fechamento: "19:00", fechado: false },
-         "4": { abertura: "09:00", fechamento: "19:00", fechado: false },
-         "5": { abertura: "09:00", fechamento: "19:00", fechado: false },
-         "6": { abertura: "09:00", fechamento: "19:00", fechado: false },
-       },
-       diasBloqueados: [],
-       excecoesHorarios: {},
-       temaCorPrimaria: "#111827",
-       fonteFamilia: "sans-serif"
-     }
-
-     configurarMascarasEDatas()
-     configurarEventosBotoes()
-     carregarServicosDoBanco()
-     carregarConfigFuncionamento()
-
-     async function carregarConfigFuncionamento() {
-       try {
-         const refConfig = doc(db, "configuracoes", "funcionamento")
-         const snap = await getDoc(refConfig)
-         if (snap.exists()) {
-           const dados = snap.data()
-           if (dados.horarios) configFuncionamento.horarios = dados.horarios
-           configFuncionamento.diasBloqueados = dados.diasBloqueados || []
-           configFuncionamento.excecoesHorarios = dados.excecoesHorarios || {}
-           if (dados.temaCorPrimaria) configFuncionamento.temaCorPrimaria = dados.temaCorPrimaria
-           if (dados.fonteFamilia) configFuncionamento.fonteFamilia = dados.fonteFamilia
-           aplicarCustomizacaoVisual()
-         }
-       } catch (e) {
-         console.error("Erro ao carregar configuracoes:", e)
-       }
-     }
-
-     function aplicarCustomizacaoVisual() {
-       document.documentElement.style.setProperty('--primary-color', configFuncionamento.temaCorPrimaria)
-       document.body.style.fontFamily = configFuncionamento.fonteFamilia
-     }
-
-     function configurarMascarasEDatas() {
-       const inputData = document.getElementById("input-data") as HTMLInputElement
-       if (inputData) inputData.value = new Date().toLocaleDateString("sv")
-     }
-
-     async function carregarServicosDoBanco() {
-       try {
-         const querySnapshot = await getDocs(collection(db, "servicos"))
-         listaServicosLocal = []
-         querySnapshot.forEach((docSnap: any) => {
-           listaServicosLocal.push({ id: docSnap.id, ...docSnap.data() })
-         })
-       } catch (e) {
-         console.error("Erro ao carregar servicos:", e)
-       }
-     }
-
-     function abrirMenuPrincipal() {
-       document.querySelectorAll(".tela").forEach((t) => t.classList.add("hidden"))
-       document.getElementById("tela-menu")?.classList.remove("hidden")
-       const boasVindas = document.getElementById("texto-boas-vindas")
-       if (boasVindas) boasVindas.innerText = `Olá, ${clienteApelido || clienteNome || 'Cliente'}!`
-     }
-
-     function iniciarTimerPix() {
-       clearInterval(temporizadorPix)
-       tempoRestantePix = 600
-       const timerElement = document.getElementById("timer-pix")
-       
-       temporizadorPix = setInterval(() => {
-         tempoRestantePix--
-         const minutos = Math.floor(tempoRestantePix / 60)
-         const segundos = tempoRestantePix % 60
-         if (timerElement) {
-           timerElement.innerText = `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`
-         }
-
-         if (tempoRestantePix <= 0) {
-           clearInterval(temporizadorPix)
-           alert("Tempo de pagamento Pix expirado! O horário foi liberado.")
-           horarioSelecionado = null
-           abrirMenuPrincipal()
-         }
-       }, 1000)
-     }
-
-     function configurarEventosBotoes() {
-       // Alternar Visibilidade da Senha Admin
-       const toggleSenha = document.getElementById("btn-toggle-senha")
-       if (toggleSenha) {
-         toggleSenha.addEventListener("click", () => {
-           const inputSenha = document.getElementById("senha-admin-input") as HTMLInputElement
-           if (inputSenha.type === "password") {
-             inputSenha.type = "text"
-             toggleSenha.innerText = "🙈"
-           } else {
-             inputSenha.type = "password"
-             toggleSenha.innerText = "👁️"
-           }
-         })
-       }
-
-       // Login / Cadastro
-       document.getElementById("btn-verificar-whats")?.addEventListener("click", async () => {
-         const inputWhats = (document.getElementById("login-whatsapp") as HTMLInputElement)?.value.trim()
-         if (!inputWhats || inputWhats.length < 10) {
-           alert("Insira um WhatsApp válido com DDD!")
-           return
-         }
-         clienteTelefone = inputWhats
-         const q = query(collection(db, "clientes"), where("whatsapp", "==", inputWhats))
-         const snap = await getDocs(q)
-         if (snap.empty) {
-           document.getElementById("tela-login")?.classList.add("hidden")
-           document.getElementById("tela-cadastro")?.classList.remove("hidden")
-         } else {
-           snap.forEach((docSnap: any) => {
-             const d = docSnap.data()
-             clienteNome = d.nome
-             clienteApelido = d.apelido
-             clienteAniversario = d.aniversario
-           })
-           // Verificar Clube
-           const refClube = doc(db, "membros_clube", inputWhats.replace(/\D/g, ""))
-           const snapClube = await getDoc(refClube)
-           if (snapClube.exists() && snapClube.data().status === "ativo") {
-             clienteEhMembroClube = true
-             clienteCategoriaClube = snapClube.data().categoria
-           }
-           abrirMenuPrincipal()
-         }
-       })
-
-       // Seleção de Pagamento
-       document.getElementById("btn-pay-local")?.addEventListener("click", () => {
-         formaPagamentoSelecionada = "local"
-         document.getElementById("container-pix")?.classList.add("hidden")
-         document.getElementById("btn-pay-local")?.classList.add("bg-green-600", "text-white")
-         document.getElementById("btn-pay-pix")?.classList.remove("bg-green-600", "text-white")
-         document.getElementById("btn-confirmar-agendamento")?.classList.remove("hidden")
-       })
-
-       document.getElementById("btn-pay-pix")?.addEventListener("click", () => {
-         formaPagamentoSelecionada = "pix"
-         document.getElementById("container-pix")?.classList.remove("hidden")
-         document.getElementById("btn-pay-pix")?.classList.add("bg-green-600", "text-white")
-         document.getElementById("btn-pay-local")?.classList.remove("bg-green-600", "text-white")
-         document.getElementById("btn-confirmar-agendamento")?.classList.remove("hidden")
-         iniciarTimerPix()
-       })
-
-       // Uploads de Fotos sem URL (Base64)
-       const setupImageUpload = (inputId: string, previewId: string) => {
-         const input = document.getElementById(inputId) as HTMLInputElement
-         if (input) {
-           input.addEventListener("change", (e: any) => {
-             const file = e.target.files[0]
-             if (file) {
-               const reader = new FileReader()
-               reader.onloadend = () => {
-                 (window as any)[`${inputId}_data`] = reader.result
-                 const img = document.getElementById(previewId) as HTMLImageElement
-                 if (img) img.src = reader.result as string
-               }
-               reader.readAsDataURL(file)
-             }
-           })
-         }
-       }
-
-       setupImageUpload("input-foto-servico", "preview-foto-servico")
-       setupImageUpload("input-foto-produto", "preview-foto-produto")
-
-       // Navegação Administrador e Abas
-       const abasAdmin = ["agenda", "caixa", "cliente", "clube", "servicos", "produtos", "horarios", "configuracao"]
-       abasAdmin.forEach((aba) => {
-         document.getElementById(`tab-${aba}`)?.addEventListener("click", () => {
-           abasAdmin.forEach((a) => {
-             document.getElementById(`tab-${a}`)?.classList.remove("border-b-2", "border-black", "font-bold")
-             document.getElementById(`conteudo-admin-${a}`)?.classList.add("hidden")
-           })
-           document.getElementById(`tab-${aba}`)?.classList.add("border-b-2", "border-black", "font-bold")
-           document.getElementById(`conteudo-admin-${aba}`)?.classList.remove("hidden")
-         })
-       })
-
-       // Salvar Configurações de Tema
-       document.getElementById("btn-salvar-config")?.addEventListener("click", async () => {
-         const cor = (document.getElementById("config-cor-primaria") as HTMLInputElement)?.value
-         const fonte = (document.getElementById("config-fonte") as HTMLSelectElement)?.value
-         configFuncionamento.temaCorPrimaria = cor
-         configFuncionamento.fonteFamilia = fonte
-
-         await setDoc(doc(db, "configuracoes", "funcionamento"), {
-           ...configFuncionamento
-         }, { merge: true })
-
-         aplicarCustomizacaoVisual()
-         alert("Configurações salvas com sucesso!")
-       })
-     }
-
-     // Inicialização da Tela
-     document.getElementById("tela-login")?.classList.remove("hidden")
-   }
-
-   loadFirebase()
+   initFirebase()
  }, [])
+
+ // Timer do Pix (10 min)
+ useEffect(() => {
+   let interval: any = null
+   if (timerAtivo && tempoPix > 0) {
+     interval = setInterval(() => {
+       setTempoPix((prev) => prev - 1)
+     }, 1000)
+   } else if (tempoPix === 0) {
+     setTimerAtivo(false)
+     alert("Tempo limite do Pix atingido! O horário foi liberado.")
+     setTelaAtual("menu")
+   }
+   return () => clearInterval(interval)
+ }, [timerAtivo, tempoPix])
+
+ // Login Handler
+ const handleAcessar = () => {
+   if (!whatsappInput || whatsappInput.length < 10) {
+     alert("Informe um WhatsApp válido com DDD!")
+     return
+   }
+   setCliente({ nome: "Cliente", apelido: "Amigo", whatsapp: whatsappInput })
+   setTelaAtual("menu")
+ }
+
+ // Admin Access Handler
+ const handleAcessoAdmin = () => {
+   if (senhaAdminInput === "77186800") {
+     setTelaAtual("admin")
+   } else {
+     alert("Senha de Administrador incorreta!")
+   }
+ }
+
+ // Formatação Tempo Pix
+ const formatarTempo = (segundos: number) => {
+   const mins = Math.floor(segundos / 60)
+   const segs = segundos % 60
+   return `${String(mins).padStart(2, '0')}:${String(segs).padStart(2, '0')}`
+ }
 
  return (
    
@@ -292,158 +107,261 @@ export default function BarbeariaHiroschi() {
      
 
        
-       {/* Cabeçalho */}
+       {/* CABEÇALHO */}
        
          
-Barbearia Hiroschi 2.0
+
+           Barbearia Hiroschi 2.0
+         
 
          
 Estilo & Tradição
 
        
 
-       {/* Tela 1: Login */}
-       
-
+       {/* TELA 1: LOGIN */}
+       {telaAtual === "login" && (
          
+
+           
 Acesse seu Perfil
 
+           
+            setWhatsappInput(e.target.value)}
+             className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl p-3 text-center focus:outline-none focus:border-amber-500"
+           />
+
+           
+             Acessar Sistema
+           
+
+           
+
+             
+
+                setSenhaAdminInput(e.target.value)}
+                 className="w-full bg-gray-800 border border-gray-700 text-white rounded-xl p-2 text-xs"
+               />
+                setMostrarSenhaAdmin(!mostrarSenhaAdmin)}
+                 className="p-2 text-sm bg-gray-800 rounded-xl border border-gray-700"
+               >
+                 {mostrarSenhaAdmin ? "🙈" : "👁️"}
+               
+             
+
+
+             
+               Acesso do Proprietário
+             
+           
+
          
-         Acessar Sistema
-         
-         
+       )}
 
-           👁️
-            {
-             const pass = prompt("Digite a senha do Administrador:")
-             if (pass === "77186800") {
-               document.querySelectorAll(".tela").forEach(t => t.classList.add("hidden"))
-               document.getElementById("tela-admin")?.classList.remove("hidden")
-             } else {
-               alert("Senha incorreta!")
-             }
-           }} className="text-xs text-red-600 underline">Acesso do Proprietário
-         
-
-       
-
-       {/* Tela 2: Menu Principal Cliente */}
-       
-
-         
-
-
-         {/* Slide de Fotos (Cortes) */}
+       {/* TELA 2: MENU PRINCIPAL CLIENTE */}
+       {telaAtual === "menu" && (
          
 
            
-[ Galeria de Trabalhos & Cortes ]
 
-         
+             
+Olá, {cliente?.apelido || cliente?.nome}!
 
-         
-
-            {
-             document.querySelectorAll(".tela").forEach(t => t.classList.add("hidden"))
-             document.getElementById("tela-servicos")?.classList.remove("hidden")
-           }} className="p-4 bg-gray-900 text-white rounded-lg font-semibold text-sm text-center">Novo Agendamento
-           Meus Agendamentos
-           Clube do Hiroschi
-           Produtos
-         
-
-       
-
-       {/* Tela 3: Pagamento e Confirmação */}
-       
-
-         
-Forma de Pagamento
-
-         
-         
-
-           Pagar no Local
-           Pagar via Pix
-         
-
-
-         
+              setTelaAtual("login")} className="text-xs text-gray-400 hover:text-white">Sair
            
+
+
+           {/* CARROSSEL / SLIDE DE CORTES */}
+           
+
+             
+             
+
+               Galeria de Trabalhos
+             
+
+              setSlideAtual((prev) => (prev === 0 ? fotosCortes.length - 1 : prev - 1))}
+               className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-xs text-white"
+             >
+               ❮
+             
+              setSlideAtual((prev) => (prev === fotosCortes.length - 1 ? 0 : prev + 1))}
+               className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/60 p-2 rounded-full text-xs text-white"
+             >
+               ❯
+             
+           
+
+
+           {/* BOTÕES DE NAVEGAÇÃO DO CLIENTE */}
+           
+
+              setTelaAtual("pagamento")}
+               className="p-4 rounded-xl font-bold text-sm text-center shadow-md transition transform active:scale-95"
+               style={{ backgroundColor: corPrimaria, color: "#000000" }}
+             >
+               Novo Agendamento
+             
+             
+               Meus Agendamentos
+             
+             
+               Clube do Hiroschi
+             
+             
+               Produtos
+             
+           
+
+         
+       )}
+
+       {/* TELA 3: CHECKOUT E PAGAMENTO */}
+       {telaAtual === "pagamento" && (
+         
+
+            setTelaAtual("menu")} className="text-xs text-gray-400">← Voltar
+           
+Confirmar Agendamento
+
+
+           
+
+              {
+                 setFormaPagamento("local")
+                 setTimerAtivo(false)
+               }}
+               className={`p-3 rounded-xl font-bold text-sm border ${formaPagamento === "local" ? "border-green-500 bg-green-500/20 text-green-400" : "border-gray-700 bg-gray-800"}`}
+             >
+               Pagar no Local
+             
+              {
+                 setFormaPagamento("pix")
+                 setTempoPix(600)
+                 setTimerAtivo(true)
+               }}
+               className={`p-3 rounded-xl font-bold text-sm border ${formaPagamento === "pix" ? "border-green-500 bg-green-500/20 text-green-400" : "border-gray-700 bg-gray-800"}`}
+             >
+               Pagar via Pix
+             
+           
+
+
+           {formaPagamento === "pix" && (
+             
+
+               
 Chave Pix (Telefone):
 
-           
+               
 21979012977
 
-           
-Tempo para realizar o Pix e enviar o comprovante:
+               
+Tempo para conclusão:
 
-           
-10:00
+               
+{formatarTempo(tempoPix)}
 
-         
-
-         Confirmar Agendamento
-       
-
-
-       {/* Painel do Administrador */}
-       
-
-         
-
-           
-Painel Admin
-
-            {
-             document.querySelectorAll(".tela").forEach(t => t.classList.add("hidden"))
-             document.getElementById("tela-login")?.classList.remove("hidden")
-           }} className="text-xs text-red-600 font-bold">Sair
-         
-
-
-         {/* Abas de Navegação */}
-         
-
-           Agenda
-           Caixa
-           Clientes
-           Clube
-           Serviços
-           Produtos
-           Horários
-           Configuração
-         
-
-
-         {/* Conteúdo Aba Configuração */}
-         
-
-           
-Personalização do App
-
-           
-
-             Cor Principal do Tema:
              
-           
+           )}
 
-           
-
-             Estilo de Fonte:
+           {formaPagamento && (
+              {
+                 alert("Agendamento efetuado com sucesso!")
+                 setTelaAtual("menu")
+               }}
+               className="w-full py-3 bg-green-600 text-white font-bold rounded-xl text-center shadow-lg hover:bg-green-500"
+             >
+               Finalizar Agendamento
              
-               Padrão Sans-Serif
-               Elegante (Serif)
-               Moderno (Monospace)
-             
-           
-
-           Salvar Estilo
+           )}
          
 
+       )}
 
-       
+       {/* PAINEL DO ADMINISTRADOR */}
+       {telaAtual === "admin" && (
+         
+
+           
+
+             
+Painel Admin 2.0
+
+              setTelaAtual("login")} className="text-xs text-red-400 font-bold">Sair
+           
+
+
+           {/* NAV ABAS ADMIN */}
+           
+
+             {(["agenda", "caixa", "cliente", "clube", "servicos", "produtos", "horarios", "configuracao"] as const).map((aba) => (
+                setAbaAdmin(aba)}
+                 className={`px-3 py-1.5 rounded-lg capitalize font-bold whitespace-nowrap transition ${abaAdmin === aba ? "bg-amber-500 text-black" : "bg-gray-800 text-gray-300"}`}
+               >
+                 {aba}
+               
+             ))}
+           
+
+
+           {/* CONTEÚDO CONFIGURAÇÃO DE CORES */}
+           {abaAdmin === "configuracao" && (
+             
+
+               
+Personalizar Cores do App
+
+               
+               
+
+                 Cor Primária (Destaque/Botões):
+                  setCorPrimaria(e.target.value)}
+                   className="w-full h-10 rounded cursor-pointer bg-transparent border-0"
+                 />
+               
+
+
+               
+
+                 Cor do Fundo:
+                  setCorFundo(e.target.value)}
+                   className="w-full h-10 rounded cursor-pointer bg-transparent border-0"
+                 />
+               
+
+
+               
+
+                 Cor do Texto:
+                  setCorTexto(e.target.value)}
+                   className="w-full h-10 rounded cursor-pointer bg-transparent border-0"
+                 />
+               
+
+
+                alert("Estilo visual atualizado!")}
+                 className="w-full py-2 bg-amber-500 text-black font-bold rounded-lg text-xs"
+               >
+                 Salvar Preferências
+               
+             
+
+           )}
+
+           {abaAdmin !== "configuracao" && (
+             
+
+               Aba {abaAdmin} pronta para operações.
+             
+
+           )}
+         
+
+       )}
 
      
 
    
+ )
+}
