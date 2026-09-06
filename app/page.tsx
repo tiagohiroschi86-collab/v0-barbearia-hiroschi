@@ -21,7 +21,7 @@ export default function BarbeariaHiroschi() {
      } = await import("firebase/firestore")
 
      const firebaseConfig = {
-       apiKey: "AIzaSyBg_BaH-0ECyJo8h0oOmTlZgt1FU3uCevQ",
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || process.env.apiKey || "",
        authDomain: "barbearia-do-hiroschi.firebaseapp.com",
        projectId: "barbearia-do-hiroschi",
        storageBucket: "barbearia-do-hiroschi.firebasestorage.app",
@@ -287,163 +287,50 @@ export default function BarbeariaHiroschi() {
  }, [])
 
  return (
-   
+   <main className="min-h-screen bg-white text-gray-900 font-sans">
+     <header className="border-b border-gray-200 px-5 py-4">
+       <h1 className="text-xl font-bold">Barbearia Hiroschi 2.0</h1>
+       <p className="text-sm text-gray-500">Estilo &amp; Tradição</p>
+     </header>
 
-     
+     <section id="tela-login" className="tela mx-auto flex max-w-md flex-col gap-4 px-5 py-8">
+       <h2 className="text-2xl font-bold">Acesse seu Perfil</h2>
+       <input id="login-whatsapp" type="tel" placeholder="WhatsApp com DDD" className="rounded-lg border border-gray-300 p-3" />
+       <button id="btn-verificar-whats" className="rounded-lg bg-gray-900 p-3 font-semibold text-white">Acessar Sistema</button>
+       <button id="btn-toggle-senha" type="button" className="hidden">Mostrar senha</button>
+       <button type="button" className="text-left text-xs text-red-600 underline" onClick={() => {
+         const pass = prompt("Digite a senha do Administrador:")
+         if (pass === "77186800") {
+           document.querySelectorAll(".tela").forEach((t) => t.classList.add("hidden"))
+           document.getElementById("tela-admin")?.classList.remove("hidden")
+         } else alert("Senha incorreta!")
+       }}>Acesso do Proprietário</button>
+     </section>
 
-       
-       {/* Cabeçalho */}
-       
-         
-Barbearia Hiroschi 2.0
+     <section id="tela-cadastro" className="tela hidden mx-auto max-w-md px-5 py-8">
+       <h2 className="text-2xl font-bold">Complete seu cadastro</h2>
+     </section>
 
-         
-Estilo & Tradição
+     <section id="tela-menu" className="tela hidden mx-auto max-w-md space-y-4 px-5 py-8">
+       <h2 id="texto-boas-vindas" className="text-2xl font-bold" />
+       <button id="btn-novo-agendamento" className="w-full rounded-lg bg-gray-900 p-4 font-semibold text-white">Novo Agendamento</button>
+       <button className="w-full rounded-lg border border-gray-300 p-4">Meus Agendamentos</button>
+       <button className="w-full rounded-lg border border-gray-300 p-4">Clube do Hiroschi</button>
+       <button className="w-full rounded-lg border border-gray-300 p-4">Produtos</button>
+     </section>
 
-       
+     <section id="tela-pagamento" className="tela hidden mx-auto max-w-md space-y-4 px-5 py-8">
+       <h2 className="text-2xl font-bold">Forma de Pagamento</h2>
+       <div className="flex gap-3"><button id="btn-pay-local" className="rounded-lg border p-3">Pagar no Local</button><button id="btn-pay-pix" className="rounded-lg border p-3">Pagar via Pix</button></div>
+       <div id="container-pix" className="hidden rounded-lg bg-gray-100 p-4"><p>Chave Pix (Telefone):</p><strong>21979012977</strong><p>Tempo: <span id="timer-pix">10:00</span></p></div>
+       <button id="btn-confirmar-agendamento" className="hidden rounded-lg bg-gray-900 p-3 text-white">Confirmar Agendamento</button>
+     </section>
 
-       {/* Tela 1: Login */}
-       
-
-         
-Acesse seu Perfil
-
-         
-         Acessar Sistema
-         
-         
-
-           👁️
-            {
-             const pass = prompt("Digite a senha do Administrador:")
-             if (pass === "77186800") {
-               document.querySelectorAll(".tela").forEach(t => t.classList.add("hidden"))
-               document.getElementById("tela-admin")?.classList.remove("hidden")
-             } else {
-               alert("Senha incorreta!")
-             }
-           }} className="text-xs text-red-600 underline">Acesso do Proprietário
-         
-
-       
-
-       {/* Tela 2: Menu Principal Cliente */}
-       
-
-         
-
-
-         {/* Slide de Fotos (Cortes) */}
-         
-
-           
-[ Galeria de Trabalhos & Cortes ]
-
-         
-
-         
-
-            {
-             document.querySelectorAll(".tela").forEach(t => t.classList.add("hidden"))
-             document.getElementById("tela-servicos")?.classList.remove("hidden")
-           }} className="p-4 bg-gray-900 text-white rounded-lg font-semibold text-sm text-center">Novo Agendamento
-           Meus Agendamentos
-           Clube do Hiroschi
-           Produtos
-         
-
-       
-
-       {/* Tela 3: Pagamento e Confirmação */}
-       
-
-         
-Forma de Pagamento
-
-         
-         
-
-           Pagar no Local
-           Pagar via Pix
-         
-
-
-         
-           
-Chave Pix (Telefone):
-
-           
-21979012977
-
-           
-Tempo para realizar o Pix e enviar o comprovante:
-
-           
-10:00
-
-         
-
-         Confirmar Agendamento
-       
-
-
-       {/* Painel do Administrador */}
-       
-
-         
-
-           
-Painel Admin
-
-            {
-             document.querySelectorAll(".tela").forEach(t => t.classList.add("hidden"))
-             document.getElementById("tela-login")?.classList.remove("hidden")
-           }} className="text-xs text-red-600 font-bold">Sair
-         
-
-
-         {/* Abas de Navegação */}
-         
-
-           Agenda
-           Caixa
-           Clientes
-           Clube
-           Serviços
-           Produtos
-           Horários
-           Configuração
-         
-
-
-         {/* Conteúdo Aba Configuração */}
-         
-
-           
-Personalização do App
-
-           
-
-             Cor Principal do Tema:
-             
-           
-
-           
-
-             Estilo de Fonte:
-             
-               Padrão Sans-Serif
-               Elegante (Serif)
-               Moderno (Monospace)
-             
-           
-
-           Salvar Estilo
-         
-
-
-       
-
-     
-
-   
+     <section id="tela-admin" className="tela hidden px-5 py-8">
+       <div className="flex items-center justify-between"><h2 className="text-2xl font-bold">Painel Admin</h2><button className="text-xs font-bold text-red-600" onClick={() => { document.querySelectorAll(".tela").forEach((t) => t.classList.add("hidden")); document.getElementById("tela-login")?.classList.remove("hidden") }}>Sair</button></div>
+       <nav className="mt-6 flex flex-wrap gap-3 text-sm">{["agenda", "caixa", "cliente", "clube", "servicos", "produtos", "horarios", "configuracao"].map((aba) => <button key={aba} id={`tab-${aba}`} className="border-b-2 border-transparent px-2 py-2 font-semibold">{aba}</button>)}</nav>
+       <div id="conteudo-admin-configuracao" className="mt-8 max-w-md space-y-4"><h3 className="text-xl font-bold">Personalização do App</h3><label className="block">Cor Principal do Tema:<input id="config-cor-primaria" type="color" defaultValue="#111827" className="ml-3" /></label><label className="block">Estilo de Fonte:<select id="config-fonte" className="ml-3 rounded border p-2"><option value="sans-serif">Padrão Sans-Serif</option><option value="serif">Elegante (Serif)</option><option value="monospace">Moderno (Monospace)</option></select></label><button id="btn-salvar-config" className="rounded-lg bg-gray-900 p-3 text-white">Salvar Estilo</button></div>
+     </section>
+   </main>
+ )
+}
