@@ -89,6 +89,10 @@ export default function BarbeariaHiroschi() {
       configurarEventosBotoes()
       carregarServicosDoBanco()
       carregarConfigFuncionamento()
+      // Aplica tema salvo (cores, fonte) assim que o app abre
+      setTimeout(() => {
+        try { (window as any).__carregarTemaAoIniciar?.() } catch {}
+      }, 400)
 
       async function carregarConfigFuncionamento() {
         try {
@@ -98,6 +102,7 @@ export default function BarbeariaHiroschi() {
             const dados = snap.data()
             if (dados.horarios) configFuncionamento.horarios = dados.horarios
             configFuncionamento.diasBloqueados = dados.diasBloqueados || []
+            ;(configFuncionamento as any).datas_customizadas = dados.datas_customizadas || {}
           }
         } catch (e) {
           console.error("Erro ao carregar configuração de funcionamento:", e)
@@ -308,6 +313,14 @@ export default function BarbeariaHiroschi() {
           document.getElementById("tela-produtos")?.classList.remove("hidden")
           await carregarProdutosCliente()
         })
+
+        document.getElementById("opt-galeria")?.addEventListener("click", async () => {
+          document.getElementById("tela-menu")?.classList.add("hidden")
+          document.getElementById("tela-galeria")?.classList.remove("hidden")
+          await carregarGaleriaCompleta()
+        })
+
+        document.getElementById("btn-voltar-galeria-menu")?.addEventListener("click", abrirMenuPrincipal)
 
         document.getElementById("btn-voltar-produtos-menu")?.addEventListener("click", abrirMenuPrincipal)
 
@@ -643,6 +656,289 @@ export default function BarbeariaHiroschi() {
           document.getElementById("tela-menu")?.classList.remove("hidden")
         }
 
+        async function carregarGaleriaMenuCliente() {
+          const track = document.getElementById("hero-track")
+          const dots = document.getElementById("hero-dots")
+          const prev = document.getElementById("hero-prev")
+          const next = document.getElementById("hero-next")
+          if (!track) return
+          track.innerHTML = "<div class='hero-slide hero-slide-empty'>Carregando fotos...</div>"
+          try {
+            const snap = await getDocs(collection(db, "galeria"))
+            const fotos: any[] = []
+            snap.forEach((d: any) => fotos.push({ id: d.id, ...d.data() }))
+            fotos.sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0))
+            if (fotos.length === 0) {
+              track.innerHTML = "<div class='hero-slide hero-slide-empty'>Sem fotos ainda. Volte em breve.</div>"
+              if (dots) dots.innerHTML = ""
+              return
+            }
+            track.innerHTML = fotos.map(f => "<div class='hero-slide'><img src='" + (f.foto || "") + "' alt='' /></div>").join("")
+            if (dots) dots.innerHTML = fotos.map((_, i) => "<div class='hero-dot" + (i === 0 ? " active" : "") + "' data-i='" + i + "'></div>").join("")
+            const w = window as any
+            w.heroIdx = 0
+            w.heroTotal = fotos.length
+            function go(i: number) {
+              const nw = window as any
+              nw.heroIdx = ((i % nw.heroTotal) + nw.heroTotal) % nw.heroTotal
+              const t = document.getElementById("hero-track") as HTMLElement
+              if (t) t.style.transform = "translateX(-" + (nw.heroIdx * 100) + "%)"
+              document.querySelectorAll(".hero-dot").forEach((d, k) => d.classList.toggle("active", k === nw.heroIdx))
+            }
+            ;(window as any).heroGo = go
+            prev?.addEventListener("click", () => go((w.heroIdx || 0) - 1))
+            next?.addEventListener("click", () => go((w.heroIdx || 0) + 1))
+            dots?.querySelectorAll(".hero-dot").forEach(d => {
+              d.addEventListener("click", () => go(Number(d.getAttribute("data-i") || 0)))
+            })
+            // Autoplay a cada 5s
+            if (w.heroAutoplayInt) clearInterval(w.heroAutoplayInt)
+            w.heroAutoplayInt = setInterval(() => go((w.heroIdx || 0) + 1), 5000)
+          } catch (e) {
+            track.innerHTML = "<div class='hero-slide hero-slide-empty'>Erro ao carregar galeria.</div>"
+          }
+        }
+
+        async function carregarGaleriaCompleta() {
+          const grid = document.getElementById("galeria-grid")
+          if (!grid) return
+          grid.innerHTML = "<p style='grid-column: span 2; text-align:center; color:#65676b;'>Carregando...</p>"
+          try {
+            const snap = await getDocs(collection(db, "galeria"))
+            const fotos: any[] = []
+            snap.forEach((d: any) => fotos.push({ id: d.id, ...d.data() }))
+            fotos.sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0))
+            if (fotos.length === 0) {
+              grid.innerHTML = "<p style='grid-column: span 2; text-align:center; color:#65676b;'>Sem fotos ainda.</p>"
+              return
+            }
+            grid.innerHTML = fotos.map(f =>
+              "<div class='galeria-item'><img src='" + (f.foto || "") + "' alt='' /></div>"
+            ).join("")
+          } catch (e) {
+            grid.innerHTML = "<p style='grid-column: span 2; text-align:center; color:#d90429;'>Erro ao carregar.</p>"
+          }
+        }
+
+        function fileToDataURI(file: File, maxW: number = 1600): Promise<string> {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => {
+              const img = new Image()
+              img.onload = () => {
+                let w = img.width, h = img.height
+                if (w > maxW) { h = Math.round(h * maxW / w); w = maxW }
+                const canvas = document.createElement("canvas")
+                canvas.width = w; canvas.height = h
+                const ctx = canvas.getContext("2d")!
+                ctx.drawImage(img, 0, 0, w, h)
+                resolve(canvas.toDataURL("image/jpeg", 0.82))
+              }
+              img.onerror = reject
+              img.src = String(reader.result)
+            }
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+          })
+        }
+
+        async function carregarGaleriaAdmin() {
+          const lista = document.getElementById("lista-galeria-admin")
+          if (!lista) return
+          lista.innerHTML = "<p style='grid-column: span 2; text-align:center; color:#65676b;'>Carregando...</p>"
+          const snap = await getDocs(collection(db, "galeria"))
+          const fotos: any[] = []
+          snap.forEach((d: any) => fotos.push({ id: d.id, ...d.data() }))
+          fotos.sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0))
+          if (fotos.length === 0) {
+            lista.innerHTML = "<p style='grid-column: span 2; text-align:center; color:#65676b;'>Nenhuma foto ainda.</p>"
+            return
+          }
+          lista.innerHTML = fotos.map(f =>
+            "<div class='galeria-item'><img src='" + (f.foto || "") + "' alt='' /><button class='del' data-id='" + f.id + "'>Excluir</button></div>"
+          ).join("")
+          lista.querySelectorAll(".del").forEach(b => {
+            b.addEventListener("click", async (e: any) => {
+              const id = e.target.getAttribute("data-id")
+              if (!confirm("Excluir esta foto da galeria?")) return
+              await deleteDoc(doc(db, "galeria", id))
+              await carregarGaleriaAdmin()
+            })
+          })
+        }
+
+        async function carregarConfiguracaoAdmin() {
+          ;(window as any).__carregarGaleriaMenuCliente = carregarGaleriaMenuCliente
+          ;(window as any).__renderizarDatasEspeciais = renderizarDatasEspeciais
+          await carregarGaleriaAdmin()
+          try {
+            const ref = doc(db, "configuracoes", "tema")
+            const s = await getDoc(ref)
+            if (s.exists()) {
+              const t = s.data()
+              const setV = (id: string, val: any) => { const el = document.getElementById(id) as any; if (el && val) el.value = val }
+              setV("cfg-cor-primaria", t.cor_primaria)
+              setV("cfg-cor-secundaria", t.cor_secundaria)
+              setV("cfg-cor-botao", t.cor_botao)
+              setV("cfg-cor-texto", t.cor_texto)
+              setV("cfg-cor-fundo", t.cor_fundo)
+              setV("cfg-fonte", t.fonte_familia)
+              setV("cfg-fonte-tamanho", t.fonte_tamanho_base)
+            }
+          } catch (e) { console.error("[tema]", e) }
+        }
+
+        function aplicarTema(t: any) {
+          const r = document.documentElement.style
+          if (t.cor_primaria)   r.setProperty("--cor-primaria", t.cor_primaria)
+          if (t.cor_secundaria) r.setProperty("--cor-secundaria", t.cor_secundaria)
+          if (t.cor_botao)      r.setProperty("--cor-botao", t.cor_botao)
+          if (t.cor_texto)      r.setProperty("--cor-texto", t.cor_texto)
+          if (t.cor_fundo)      r.setProperty("--cor-fundo", t.cor_fundo)
+          if (t.fonte_familia)  r.setProperty("--fonte-familia", t.fonte_familia)
+          if (t.fonte_tamanho_base) r.setProperty("--fonte-tamanho-base", t.fonte_tamanho_base + "px")
+        }
+
+        async function carregarTemaAoIniciar() {
+          try {
+            const s = await getDoc(doc(db, "configuracoes", "tema"))
+            if (s.exists()) aplicarTema(s.data())
+          } catch {}
+        }
+
+        document.getElementById("btn-salvar-tema")?.addEventListener("click", async () => {
+          const t = {
+            cor_primaria: (document.getElementById("cfg-cor-primaria") as HTMLInputElement)?.value || "#002855",
+            cor_secundaria: (document.getElementById("cfg-cor-secundaria") as HTMLInputElement)?.value || "#d90429",
+            cor_botao: (document.getElementById("cfg-cor-botao") as HTMLInputElement)?.value || "#d90429",
+            cor_texto: (document.getElementById("cfg-cor-texto") as HTMLInputElement)?.value || "#333333",
+            cor_fundo: (document.getElementById("cfg-cor-fundo") as HTMLInputElement)?.value || "#f0f2f5",
+            fonte_familia: (document.getElementById("cfg-fonte") as HTMLSelectElement)?.value || "sans-serif",
+            fonte_tamanho_base: Number((document.getElementById("cfg-fonte-tamanho") as HTMLInputElement)?.value || "16"),
+            atualizado_em: new Date().toISOString(),
+          }
+          await setDoc(doc(db, "configuracoes", "tema"), t, { merge: true })
+          aplicarTema(t)
+          alert("Aparência salva e aplicada.")
+        })
+
+        document.getElementById("btn-restaurar-tema")?.addEventListener("click", async () => {
+          if (!confirm("Restaurar cores e fonte padrão?")) return
+          const padrao = {
+            cor_primaria: "#002855",
+            cor_secundaria: "#d90429",
+            cor_botao: "#d90429",
+            cor_texto: "#333333",
+            cor_fundo: "#f0f2f5",
+            fonte_familia: "sans-serif",
+            fonte_tamanho_base: 16,
+          }
+          const setV = (id: string, val: any) => { const el = document.getElementById(id) as any; if (el) el.value = val }
+          setV("cfg-cor-primaria", padrao.cor_primaria)
+          setV("cfg-cor-secundaria", padrao.cor_secundaria)
+          setV("cfg-cor-botao", padrao.cor_botao)
+          setV("cfg-cor-texto", padrao.cor_texto)
+          setV("cfg-cor-fundo", padrao.cor_fundo)
+          setV("cfg-fonte", padrao.fonte_familia)
+          setV("cfg-fonte-tamanho", padrao.fonte_tamanho_base)
+          await setDoc(doc(db, "configuracoes", "tema"), padrao, { merge: true })
+          aplicarTema(padrao)
+        })
+
+        document.getElementById("btn-add-galeria")?.addEventListener("click", async () => {
+          const inp = document.getElementById("galeria-file") as HTMLInputElement
+          const tit = document.getElementById("galeria-titulo") as HTMLInputElement
+          if (!inp?.files?.[0]) { alert("Escolha uma foto do seu celular/tablet."); return }
+          const btn = document.getElementById("btn-add-galeria") as HTMLButtonElement
+          btn.disabled = true; btn.innerText = "Processando..."
+          try {
+            const dataUri = await fileToDataURI(inp.files[0], 1600)
+            const nowOrder = Date.now()
+            await addDoc(collection(db, "galeria"), {
+              foto: dataUri,
+              titulo: tit?.value || "",
+              ordem: nowOrder,
+              criado_em: new Date().toISOString(),
+            })
+            inp.value = ""; if (tit) tit.value = ""
+            await carregarGaleriaAdmin()
+            alert("Foto adicionada!")
+          } catch (e: any) {
+            alert("Erro ao adicionar foto: " + (e?.message || e))
+          } finally {
+            btn.disabled = false; btn.innerText = "Adicionar à Galeria"
+          }
+        })
+
+        // ============ DATAS ESPECIAIS ============
+        function renderizarDatasEspeciais() {
+          const cont = document.getElementById("lista-datas-especiais")
+          if (!cont) return
+          const custom = (configFuncionamento as any).datas_customizadas || {}
+          const chaves = Object.keys(custom).sort()
+          if (chaves.length === 0) { cont.innerHTML = "<p style='color:#65676b; font-size:12px;'>Nenhuma data especial cadastrada.</p>"; return }
+          cont.innerHTML = chaves.map(k => {
+            const d = custom[k]
+            const label = d.fechado ? "FECHADO" : "Aberto " + (d.abertura || "") + "-" + (d.fechamento || "")
+            const motivo = d.motivo ? " · " + d.motivo : ""
+            return "<div class='esp-item'><span>" + k.split('-').reverse().join('/') + " · " + label + motivo + "</span><button data-k='" + k + "'>Remover</button></div>"
+          }).join("")
+          cont.querySelectorAll(".esp-item button").forEach(b => {
+            b.addEventListener("click", async (e: any) => {
+              const k = e.target.getAttribute("data-k")
+              const custom = (configFuncionamento as any).datas_customizadas || {}
+              delete custom[k]
+              ;(configFuncionamento as any).datas_customizadas = custom
+              await persistirConfigFuncionamento()
+              renderizarDatasEspeciais()
+            })
+          })
+        }
+
+        document.getElementById("btn-salvar-data-especial")?.addEventListener("click", async () => {
+          const data = (document.getElementById("esp-data") as HTMLInputElement)?.value
+          const modo = (document.getElementById("esp-modo") as HTMLSelectElement)?.value
+          const ab = (document.getElementById("esp-abertura") as HTMLInputElement)?.value
+          const fe = (document.getElementById("esp-fechamento") as HTMLInputElement)?.value
+          const mot = (document.getElementById("esp-motivo") as HTMLInputElement)?.value
+          if (!data) { alert("Escolha a data."); return }
+          const custom = (configFuncionamento as any).datas_customizadas || {}
+          custom[data] = modo === "fechado"
+            ? { fechado: true, motivo: mot || "" }
+            : { fechado: false, abertura: ab || "09:00", fechamento: fe || "18:00", motivo: mot || "" }
+          ;(configFuncionamento as any).datas_customizadas = custom
+          await persistirConfigFuncionamento()
+          renderizarDatasEspeciais()
+          alert("Data especial salva.")
+        })
+
+        // Upload de foto para SERVIÇO
+        document.getElementById("novo-serv-foto-file")?.addEventListener("change", async (e: any) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          const dataUri = await fileToDataURI(file, 900)
+          ;(window as any).novoServicoFotoDataUri = dataUri
+          const prev = document.getElementById("novo-serv-foto-preview") as HTMLImageElement
+          if (prev) { prev.src = dataUri; prev.classList.remove("hidden") }
+        })
+
+        // Upload de foto para PRODUTO
+        document.getElementById("novo-prod-foto-file")?.addEventListener("change", async (e: any) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          const dataUri = await fileToDataURI(file, 900)
+          ;(window as any).novoProdutoFotoDataUri = dataUri
+          const prev = document.getElementById("novo-prod-foto-preview") as HTMLImageElement
+          if (prev) { prev.src = dataUri; prev.classList.remove("hidden") }
+        })
+
+        // Expõe funções para uso em outros escopos (menu principal, admin, bootstrap)
+        ;(window as any).__carregarGaleriaMenuCliente = carregarGaleriaMenuCliente
+        ;(window as any).__carregarGaleriaCompleta = carregarGaleriaCompleta
+        ;(window as any).__renderizarDatasEspeciais = renderizarDatasEspeciais
+        ;(window as any).__carregarTemaAoIniciar = carregarTemaAoIniciar
+        ;(window as any).__aplicarTema = aplicarTema
+
         document.getElementById("btn-abrir-admin")?.addEventListener("click", () => {
           const passe = prompt("Digite a senha de acesso gerencial:")
           if (passe === "77186800") {
@@ -659,15 +955,26 @@ export default function BarbeariaHiroschi() {
           document.getElementById("tela-login")?.classList.remove("hidden")
         })
 
-        const abas = ["tab-agenda", "tab-clientes", "tab-clube-admin", "tab-servicos-admin", "tab-horarios-admin", "tab-financeiro-admin", "tab-produtos-admin"]
+        // Ordem solicitada: Agenda, Caixa, Clientes, Clube, Serviços, Produtos, Horários, Configuração
+        const abas = [
+          "tab-agenda",
+          "tab-financeiro-admin",
+          "tab-clientes",
+          "tab-clube-admin",
+          "tab-servicos-admin",
+          "tab-produtos-admin",
+          "tab-horarios-admin",
+          "tab-configuracao-admin",
+        ]
         const conteudos = [
           "conteudo-admin-agenda",
+          "conteudo-admin-financeiro",
           "conteudo-admin-clientes",
           "conteudo-admin-clube",
           "conteudo-admin-servicos",
-          "conteudo-admin-horarios",
-          "conteudo-admin-financeiro",
           "conteudo-admin-produtos",
+          "conteudo-admin-horarios",
+          "conteudo-admin-configuracao",
         ]
 
         abas.forEach((abaId, index) => {
@@ -685,6 +992,7 @@ export default function BarbeariaHiroschi() {
             if (abaId === "tab-horarios-admin") carregarConfigHorariosAdmin()
             if (abaId === "tab-financeiro-admin") carregarFinanceiroAdmin()
             if (abaId === "tab-produtos-admin") carregarProdutosEditorAdmin()
+            if (abaId === "tab-configuracao-admin") carregarConfiguracaoAdmin()
           })
         })
 
@@ -765,7 +1073,9 @@ export default function BarbeariaHiroschi() {
             const nome = (document.getElementById("novo-serv-nome") as HTMLInputElement)?.value.trim() || ""
             const preco = parseFloat((document.getElementById("novo-serv-preco") as HTMLInputElement)?.value) || 0
             const tempo = (document.getElementById("novo-serv-tempo") as HTMLInputElement)?.value.trim() || ""
-            const foto = (document.getElementById("novo-serv-foto") as HTMLInputElement)?.value.trim() || ""
+            const fotoURL = (document.getElementById("novo-serv-foto") as HTMLInputElement)?.value.trim() || ""
+            const fotoUploaded = (window as any).novoServicoFotoDataUri || ""
+            const foto = fotoUploaded || fotoURL
 
             if (!nome || preco <= 0 || !tempo) {
               alert("Preencha todos os campos!")
@@ -778,6 +1088,9 @@ export default function BarbeariaHiroschi() {
               ;(document.getElementById("novo-serv-preco") as HTMLInputElement).value = ""
               ;(document.getElementById("novo-serv-tempo") as HTMLInputElement).value = ""
               ;(document.getElementById("novo-serv-foto") as HTMLInputElement).value = ""
+              ;(document.getElementById("novo-serv-foto-file") as HTMLInputElement).value = ""
+              document.getElementById("novo-serv-foto-preview")?.classList.add("hidden")
+              ;(window as any).novoServicoFotoDataUri = ""
               alert("Novo serviço adicionado!")
               await carregarServicosEditorAdmin()
             } catch (e) {
@@ -868,7 +1181,9 @@ export default function BarbeariaHiroschi() {
           btnCadastrarProduto.addEventListener("click", async () => {
             const nome = (document.getElementById("novo-prod-nome") as HTMLInputElement)?.value.trim() || ""
             const preco = parseFloat((document.getElementById("novo-prod-preco") as HTMLInputElement)?.value) || 0
-            const foto = (document.getElementById("novo-prod-foto") as HTMLInputElement)?.value.trim() || ""
+            const fotoURL = (document.getElementById("novo-prod-foto") as HTMLInputElement)?.value.trim() || ""
+            const fotoUploaded = (window as any).novoProdutoFotoDataUri || ""
+            const foto = fotoUploaded || fotoURL
             const descricao = (document.getElementById("novo-prod-desc") as HTMLInputElement)?.value.trim() || ""
 
             if (!nome || preco <= 0) {
@@ -881,6 +1196,9 @@ export default function BarbeariaHiroschi() {
               ;(document.getElementById("novo-prod-nome") as HTMLInputElement).value = ""
               ;(document.getElementById("novo-prod-preco") as HTMLInputElement).value = ""
               ;(document.getElementById("novo-prod-foto") as HTMLInputElement).value = ""
+              ;(document.getElementById("novo-prod-foto-file") as HTMLInputElement).value = ""
+              document.getElementById("novo-prod-foto-preview")?.classList.add("hidden")
+              ;(window as any).novoProdutoFotoDataUri = ""
               ;(document.getElementById("novo-prod-desc") as HTMLInputElement).value = ""
               alert("Novo produto adicionado!")
               await carregarProdutosEditorAdmin()
@@ -933,11 +1251,19 @@ export default function BarbeariaHiroschi() {
         document.getElementById("tela-clube")?.classList.add("hidden")
         document.getElementById("tela-meus-horarios")?.classList.add("hidden")
         document.getElementById("tela-produtos")?.classList.add("hidden")
+        document.getElementById("tela-galeria")?.classList.add("hidden")
         document.getElementById("tela-agenda")?.classList.add("hidden")
         document.getElementById("tela-sucesso")?.classList.add("hidden")
+        document.getElementById("tela-pagamento")?.classList.add("hidden")
+        document.getElementById("tela-pix")?.classList.add("hidden")
         document.getElementById("tela-menu")?.classList.remove("hidden")
         const saudacao = document.getElementById("saudacao-menu")
         if (saudacao) saudacao.innerText = `Olá, ${clienteApelido}! 👋`
+        // Carrossel de trabalhos
+        try {
+          const fn = (window as any).__carregarGaleriaMenuCliente
+          if (typeof fn === "function") fn()
+        } catch {}
       }
 
       async function carregarHorariosCliente() {
@@ -1166,10 +1492,22 @@ export default function BarbeariaHiroschi() {
           return
         }
 
+        // Verifica se há data especial (customizada) — sobrepõe o horário semanal
+        const datasCustom = (configFuncionamento as any).datas_customizadas || {}
+        const custom = datasCustom[dataSelecionada]
+        if (custom && custom.fechado) {
+          container.innerHTML =
+            "<p style='color: #d90429; grid-column: span 3; text-align:center; font-weight:bold;'>Fechado nesta data (" + (custom.motivo || "data especial") + "). Escolha outra.</p>"
+          return
+        }
+
         // Gera os horários conforme a configuração do dia da semana selecionado
         const [anoCfg, mesCfg, diaCfg] = dataSelecionada.split("-")
         const diaSemanaSel = new Date(Number(anoCfg), Number(mesCfg) - 1, Number(diaCfg)).getDay()
-        const cfgDia = configFuncionamento.horarios[String(diaSemanaSel)]
+        let cfgDia = configFuncionamento.horarios[String(diaSemanaSel)]
+        if (custom && !custom.fechado) {
+          cfgDia = { fechado: false, abertura: custom.abertura || "09:00", fechamento: custom.fechamento || "18:00" }
+        }
         if (!cfgDia || cfgDia.fechado) {
           container.innerHTML =
             "<p style='color: #d90429; grid-column: span 3; text-align:center; font-weight:bold;'>Fechado neste dia da semana.</p>"
@@ -1624,7 +1962,8 @@ export default function BarbeariaHiroschi() {
         await setDoc(doc(db, "configuracoes", "funcionamento"), {
           horarios: configFuncionamento.horarios,
           diasBloqueados: configFuncionamento.diasBloqueados,
-        })
+          datas_customizadas: (configFuncionamento as any).datas_customizadas || {},
+        }, { merge: true })
       }
 
       // ===== VITRINE DE PRODUTOS (CLIENTE) =====
@@ -1867,10 +2206,21 @@ export default function BarbeariaHiroschi() {
   return (
     <>
       <style jsx global>{`
+        :root {
+          --cor-primaria: #002855;
+          --cor-secundaria: #d90429;
+          --cor-botao: #d90429;
+          --cor-texto: #333333;
+          --cor-fundo: #f0f2f5;
+          --fonte-familia: sans-serif;
+          --fonte-tamanho-base: 16px;
+        }
         body {
           margin: 0;
-          background-color: #f0f2f5;
-          font-family: sans-serif;
+          background-color: var(--cor-fundo);
+          color: var(--cor-texto);
+          font-family: var(--fonte-familia);
+          font-size: var(--fonte-tamanho-base);
           display: flex;
           justify-content: center;
           align-items: center;
@@ -1884,7 +2234,7 @@ export default function BarbeariaHiroschi() {
           height: 640px;
           background-color: #ffffff;
           border-radius: 30px;
-          border: 4px solid #002855;
+          border: 4px solid var(--cor-primaria);
           padding: 25px 15px;
           display: flex;
           flex-direction: column;
@@ -1916,13 +2266,41 @@ export default function BarbeariaHiroschi() {
         .pix-qr-wrap img { width:230px; height:230px; background:#fff; padding:6px; border:1px solid #e4e6eb; border-radius:8px; object-fit:contain; }
         .pix-copia-cola { width:100%; padding:10px; border:1px solid #ccd1d9; border-radius:8px; font-family:monospace; font-size:11px; word-break:break-all; box-sizing:border-box; resize:none; color:#333; background:#f7f8fa; }
         .pix-instrucoes { font-size:13px; color:#65676b; margin-top:14px; line-height:1.6; }
-        #logo { font-size: 24px; color: #002855; text-align: center; margin-top: 10px; margin-bottom: 25px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; }
-        h2 { font-size: 18px; color: #002855; margin-bottom: 15px; text-align: center; font-weight: bold; }
+        /* ====== Carrossel de trabalhos (tela cliente) ====== */
+        .hero-carousel { position: relative; width: 100%; height: 180px; margin-bottom: 14px; overflow: hidden; border-radius: 12px; background: #eaeaea; }
+        .hero-track { display: flex; height: 100%; transition: transform 0.5s ease; }
+        .hero-slide { min-width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #000; }
+        .hero-slide img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+        .hero-slide-empty { color: #65676b; font-size: 13px; }
+        .hero-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.35); color: #fff; border: none; width: 36px; height: 36px; border-radius: 50%; font-size: 22px; cursor: pointer; z-index: 5; }
+        .hero-nav.hero-prev { left: 6px; }
+        .hero-nav.hero-next { right: 6px; }
+        .hero-dots { position: absolute; bottom: 6px; left: 0; right: 0; display: flex; justify-content: center; gap: 6px; }
+        .hero-dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.6); cursor: pointer; }
+        .hero-dot.active { background: #fff; }
+        /* Galeria completa */
+        .galeria-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .galeria-item { position: relative; background: #eee; border-radius: 8px; overflow: hidden; height: 130px; display:flex; align-items:center; justify-content:center; }
+        .galeria-item img { width: 100%; height: 100%; object-fit: contain; background:#000; }
+        .galeria-item .del { position: absolute; top: 4px; right: 4px; background: rgba(217,4,41,0.85); color: #fff; border: none; border-radius: 4px; padding: 4px 6px; font-size: 11px; cursor: pointer; }
+        /* Configuração admin */
+        .cfg-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .cfg-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .cfg-row label { font-size: 13px; color: #333; flex: 1; }
+        .cfg-row input[type=color] { width: 60px; height: 34px; border: 1px solid #ccd1d9; border-radius: 6px; padding: 2px; cursor: pointer; }
+        .cfg-row input[type=number], .cfg-row select { width: 140px; padding: 8px; font-size: 14px; border: 1px solid #ccd1d9; border-radius: 6px; }
+        /* Datas especiais lista */
+        .esp-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid #e4e6eb; border-radius: 6px; margin-top: 6px; font-size: 13px; }
+        .esp-item button { background: #d90429; color: #fff; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+        /* Preview de imagem em upload */
+        .file-preview { max-width: 100%; max-height: 140px; object-fit: contain; margin-top: 6px; border: 1px solid #e4e6eb; border-radius: 6px; background:#f7f8fa; display:block; }
+        #logo { font-size: 24px; color: var(--cor-primaria); text-align: center; margin-top: 10px; margin-bottom: 25px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; }
+        h2 { font-size: 18px; color: var(--cor-primaria); margin-bottom: 15px; text-align: center; font-weight: bold; }
         .form { width: 100%; display: flex; flex-direction: column; gap: 15px; }
         input, select { width: 100%; padding: 14px; background-color: #ffffff; border: 1px solid #ccd1d9; border-radius: 8px; color: #333; font-size: 16px; box-sizing: border-box; outline: none; }
         input:focus, select:focus { border-color: #002855; }
         label { color: #65676b; font-size: 13px; margin-bottom: -5px; padding-left: 5px; }
-        button { width: 100%; padding: 14px; background-color: #d90429; border: none; border-radius: 8px; color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+        button { width: 100%; padding: 14px; background-color: var(--cor-botao); border: none; border-radius: 8px; color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 10px; transition: 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
         button:hover { background-color: #b30322; }
         button:disabled { background-color: #ccd1d9; color: #8d949e; cursor: not-allowed; }
         .section-title { color: #002855; font-size: 13px; font-weight: bold; text-transform: uppercase; margin-top: 15px; margin-bottom: 10px; border-left: 3px solid #d90429; padding-left: 6px; }
@@ -1968,8 +2346,8 @@ export default function BarbeariaHiroschi() {
         .btn-perigo { background-color: #000000; color: #ffffff; border: 2px solid #ff4444; margin-bottom: 15px; font-size: 12px; padding: 10px; }
         .btn-perigo:hover { background-color: #ffccd0; color: #000; }
         .card-info { display: flex; align-items: center; gap: 10px; }
-        .card-foto { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid #e4e6eb; flex-shrink: 0; }
-        .preview-foto-edit { width: 100%; max-height: 120px; object-fit: cover; border-radius: 6px; border: 1px solid #e4e6eb; margin-top: 4px; }
+        .card-foto { width: 48px; height: 48px; border-radius: 8px; object-fit: contain; background:#f0f2f5; border: 1px solid #e4e6eb; flex-shrink: 0; }
+        .preview-foto-edit { width: 100%; max-height: 140px; object-fit: contain; background:#f0f2f5; border-radius: 6px; border: 1px solid #e4e6eb; margin-top: 4px; }
         .item-agenda.confirmado { border-left: 4px solid #2e7d32; border-top-color: #2e7d32; border-right-color: #2e7d32; border-bottom-color: #2e7d32; background-color: #f0faf0; }
         .tag-confirmado { color: #2e7d32; font-weight: bold; font-size: 12px; margin-top: 6px; }
         .btn-acoes-agenda { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
@@ -2056,7 +2434,16 @@ export default function BarbeariaHiroschi() {
 
         <div id="tela-menu" className="hidden">
           <h2 id="saudacao-menu">Olá!</h2>
-          <p style={{ color: "#65676b", fontSize: "14px", textAlign: "center", marginBottom: "20px" }}>Escolha o que deseja fazer hoje:</p>
+
+          {/* Carrossel de trabalhos - fotos do admin */}
+          <div id="hero-carousel" className="hero-carousel">
+            <div id="hero-track" className="hero-track"></div>
+            <button id="hero-prev" className="hero-nav hero-prev" type="button" aria-label="Anterior">‹</button>
+            <button id="hero-next" className="hero-nav hero-next" type="button" aria-label="Próxima">›</button>
+            <div id="hero-dots" className="hero-dots"></div>
+          </div>
+
+          <p style={{ color: "#65676b", fontSize: "13px", textAlign: "center", marginBottom: "12px" }}>Escolha o que deseja fazer:</p>
           <div className="btn-menu" id="opt-agendamento">
             <div>Novo Agendamento<span className="sub-txt">Escolha e combine os serviços desejados.</span></div>
             <span>➔</span>
@@ -2065,14 +2452,25 @@ export default function BarbeariaHiroschi() {
             <div>Ver Meus Agendamentos<span className="sub-txt">Consulte ou cancele seus horários marcados.</span></div>
             <span>➔</span>
           </div>
-          <div className="btn-menu" id="opt-produtos" style={{ borderLeftColor: "#2e7d32" }}>
-            <div>Produtos<span className="sub-txt">Confira nossa linha de produtos exclusivos.</span></div>
-            <span>➔</span>
-          </div>
           <div className="btn-menu" id="opt-clube" style={{ borderLeftColor: "#d90429" }}>
             <div>Clube do Hiroschi<span className="sub-txt">Nossos planos de assinatura mensal.</span></div>
             <span>➔</span>
           </div>
+          <div className="btn-menu" id="opt-galeria" style={{ borderLeftColor: "#a97142" }}>
+            <div>Galeria de Fotos<span className="sub-txt">Veja mais trabalhos e cortes.</span></div>
+            <span>➔</span>
+          </div>
+          <div className="btn-menu" id="opt-produtos" style={{ borderLeftColor: "#2e7d32" }}>
+            <div>Produtos<span className="sub-txt">Confira nossa linha de produtos exclusivos.</span></div>
+            <span>➔</span>
+          </div>
+        </div>
+
+        <div id="tela-galeria" className="hidden">
+          <h2>Galeria de Fotos</h2>
+          <p style={{ color: "#65676b", fontSize: "13px", textAlign: "center", marginBottom: "12px" }}>Nossos trabalhos e cortes:</p>
+          <div id="galeria-grid" className="galeria-grid"></div>
+          <button id="btn-voltar-galeria-menu" style={{ backgroundColor: "#65676b", color: "#fff", marginTop: "15px" }}>Voltar ao Menu</button>
         </div>
 
         <div id="tela-meus-horarios" className="hidden">
@@ -2204,6 +2602,7 @@ export default function BarbeariaHiroschi() {
             <button className="admin-nav-btn" id="tab-servicos-admin">Serviços</button>
             <button className="admin-nav-btn" id="tab-produtos-admin">Produtos</button>
             <button className="admin-nav-btn" id="tab-horarios-admin">Horários</button>
+            <button className="admin-nav-btn" id="tab-configuracao-admin">Configuração</button>
           </div>
           <div id="conteudo-admin-agenda">
             <div className="admin-box">
@@ -2264,6 +2663,8 @@ export default function BarbeariaHiroschi() {
                   <input type="text" id="novo-serv-tempo" placeholder="Tempo (Ex: 15 min)" style={{ padding: "10px", fontSize: "14px", flex: 1 }} />
                 </div>
                 <input type="text" id="novo-serv-foto" placeholder="URL da foto (opcional)" style={{ padding: "10px", fontSize: "14px" }} />
+                <input type="file" id="novo-serv-foto-file" accept="image/*" style={{ padding: "8px", fontSize: "13px" }} />
+                <img id="novo-serv-foto-preview" className="file-preview hidden" alt="preview" />
                 <button id="btn-cadastrar-servico" style={{ marginTop: "5px", padding: "10px", backgroundColor: "#002855" }}>Cadastrar Serviço</button>
               </div>
             </div>
@@ -2319,7 +2720,9 @@ export default function BarbeariaHiroschi() {
                 <input type="text" id="novo-prod-nome" placeholder="Nome do Produto (Ex: Pomada Modeladora)" style={{ padding: "10px", fontSize: "14px" }} />
                 <input type="number" step="0.01" id="novo-prod-preco" placeholder="Preço (Ex: 45.00)" style={{ padding: "10px", fontSize: "14px" }} />
                 <input type="text" id="novo-prod-desc" placeholder="Descrição curta" style={{ padding: "10px", fontSize: "14px" }} />
-                <input type="text" id="novo-prod-foto" placeholder="URL da imagem" style={{ padding: "10px", fontSize: "14px" }} />
+                <input type="text" id="novo-prod-foto" placeholder="URL da imagem (opcional)" style={{ padding: "10px", fontSize: "14px" }} />
+                <input type="file" id="novo-prod-foto-file" accept="image/*" style={{ padding: "8px", fontSize: "13px" }} />
+                <img id="novo-prod-foto-preview" className="file-preview hidden" alt="preview" />
                 <button id="btn-cadastrar-produto" style={{ marginTop: "5px", padding: "10px", backgroundColor: "#002855" }}>Cadastrar Produto</button>
               </div>
             </div>
@@ -2328,7 +2731,7 @@ export default function BarbeariaHiroschi() {
           </div>
           <div id="conteudo-admin-horarios" className="hidden">
             <div className="admin-box">
-              <h3>Horário de Funcionamento</h3>
+              <h3>Horário de Funcionamento (semanal)</h3>
               <p style={{ color: "#65676b", fontSize: "12px", marginTop: "-5px", marginBottom: "10px" }}>Marque os dias abertos e defina o horário que aparece para os clientes.</p>
               <div id="config-horarios-dias"></div>
               <button id="btn-salvar-horarios" style={{ marginTop: "10px", padding: "10px", backgroundColor: "#002855" }}>Salvar Horários de Funcionamento</button>
@@ -2342,6 +2745,68 @@ export default function BarbeariaHiroschi() {
               <button id="btn-bloquear-dia" style={{ marginTop: "8px", padding: "10px", backgroundColor: "#d90429" }}>Bloquear Dia (Férias/Feriado)</button>
               <div className="section-title" style={{ marginTop: "15px" }}>Dias Bloqueados</div>
               <div id="lista-dias-bloqueados"></div>
+            </div>
+            <div className="admin-box">
+              <h3>Datas Especiais (Natal, Ano Novo, Feriados)</h3>
+              <p style={{ color: "#65676b", fontSize: "12px", marginTop: "-5px", marginBottom: "10px" }}>Abra ou defina horários específicos para datas futuras — sobrepõe o horário semanal padrão.</p>
+              <div className="form" style={{ gap: "8px" }}>
+                <input type="date" id="esp-data" style={{ padding: "10px", fontSize: "14px" }} />
+                <select id="esp-modo" style={{ padding: "10px", fontSize: "14px" }}>
+                  <option value="aberto">Abrir dia (com horário especial)</option>
+                  <option value="fechado">Fechar dia (bloquear)</option>
+                </select>
+                <div style={{ display: "flex", gap: "5px" }}>
+                  <input type="time" id="esp-abertura" defaultValue="09:00" style={{ flex: 1, padding: "10px", fontSize: "14px" }} />
+                  <input type="time" id="esp-fechamento" defaultValue="18:00" style={{ flex: 1, padding: "10px", fontSize: "14px" }} />
+                </div>
+                <input type="text" id="esp-motivo" placeholder="Motivo (ex: Véspera de Natal)" style={{ padding: "10px", fontSize: "14px" }} />
+                <button id="btn-salvar-data-especial" style={{ padding: "10px", backgroundColor: "#002855" }}>Salvar Data Especial</button>
+              </div>
+              <div className="section-title" style={{ marginTop: "15px" }}>Datas Especiais Cadastradas</div>
+              <div id="lista-datas-especiais"></div>
+            </div>
+          </div>
+          <div id="conteudo-admin-configuracao" className="hidden">
+            <div className="admin-box">
+              <h3>Aparência do Aplicativo</h3>
+              <p style={{ color: "#65676b", fontSize: "12px", marginTop: "-5px", marginBottom: "10px" }}>Altere cores, fonte e tamanho. As mudanças ficam salvas e são aplicadas para todos os clientes.</p>
+              <div className="cfg-grid">
+                <div className="cfg-row"><label>Cor Primária (topo/títulos)</label><input type="color" id="cfg-cor-primaria" defaultValue="#002855" /></div>
+                <div className="cfg-row"><label>Cor Secundária (destaques)</label><input type="color" id="cfg-cor-secundaria" defaultValue="#d90429" /></div>
+                <div className="cfg-row"><label>Cor dos Botões</label><input type="color" id="cfg-cor-botao" defaultValue="#d90429" /></div>
+                <div className="cfg-row"><label>Cor do Texto</label><input type="color" id="cfg-cor-texto" defaultValue="#333333" /></div>
+                <div className="cfg-row"><label>Cor de Fundo</label><input type="color" id="cfg-cor-fundo" defaultValue="#f0f2f5" /></div>
+                <div className="cfg-row">
+                  <label>Fonte</label>
+                  <select id="cfg-fonte">
+                    <option value="sans-serif">Padrão (sans-serif)</option>
+                    <option value="'Segoe UI', Arial, sans-serif">Segoe UI</option>
+                    <option value="'Roboto', sans-serif">Roboto</option>
+                    <option value="Georgia, serif">Georgia (serifada)</option>
+                    <option value="'Montserrat', sans-serif">Montserrat</option>
+                    <option value="'Poppins', sans-serif">Poppins</option>
+                  </select>
+                </div>
+                <div className="cfg-row">
+                  <label>Tamanho da fonte base (px)</label>
+                  <input type="number" id="cfg-fonte-tamanho" defaultValue="16" min="12" max="22" />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+                <button id="btn-salvar-tema" style={{ flex: 1, padding: "10px", backgroundColor: "#002855" }}>Salvar e Aplicar</button>
+                <button id="btn-restaurar-tema" style={{ flex: 1, padding: "10px", backgroundColor: "#65676b" }}>Restaurar Padrão</button>
+              </div>
+            </div>
+            <div className="admin-box">
+              <h3>Galeria de Fotos (trabalhos)</h3>
+              <p style={{ color: "#65676b", fontSize: "12px", marginTop: "-5px", marginBottom: "10px" }}>Fotos que aparecem no carrossel da tela principal do cliente. Escolha diretamente da galeria do seu celular/tablet.</p>
+              <div className="form" style={{ gap: "8px" }}>
+                <input type="file" id="galeria-file" accept="image/*" style={{ padding: "8px", fontSize: "13px" }} />
+                <input type="text" id="galeria-titulo" placeholder="Título/legenda (opcional)" style={{ padding: "10px", fontSize: "14px" }} />
+                <button id="btn-add-galeria" style={{ padding: "10px", backgroundColor: "#002855" }}>Adicionar à Galeria</button>
+              </div>
+              <div className="section-title" style={{ marginTop: "12px" }}>Fotos da Galeria</div>
+              <div id="lista-galeria-admin" className="galeria-grid"></div>
             </div>
           </div>
           <button id="btn-sair-admin" style={{ marginTop: "20px", backgroundColor: "#65676b", color: "#fff" }}>Voltar para o App</button>
