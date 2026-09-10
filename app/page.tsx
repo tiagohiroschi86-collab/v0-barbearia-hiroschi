@@ -360,29 +360,166 @@ export default function BarbeariaHiroschi() {
               alert("Não foi possível identificar seu WhatsApp. Refaça o login.")
               return
             }
-            btnAderirClube.innerText = "Processando..."
-            try {
-              // Registra o cliente como MEMBRO do Clube do Hiroschi na categoria escolhida
-              await setDoc(doc(db, "membros_clube", telLimpoMembro), {
-                telefone: telLimpoMembro,
-                nome: clienteNome,
-                apelido: clienteApelido,
-                categoria: planoClubeSelecionado.nome,
-                valor_plano: planoClubeSelecionado.valor,
+            // NÃO cria membro automaticamente. Abre escolha da forma de pagamento.
+            ;(window as any).clubePlanoAssinatura = {
+              telefone: telLimpoMembro,
+              nome: clienteNome,
+              apelido: clienteApelido,
+              plano: planoClubeSelecionado.nome,
+              valor_plano: planoClubeSelecionado.valor,
+            }
+            const valorNum = Number(String(planoClubeSelecionado.valor).replace(/[^\d,]/g, "").replace(",", ".")) || 0
+            const resumoEl = document.getElementById("clube-pg-resumo")
+            if (resumoEl) resumoEl.innerHTML =
+              '<div class="pg-line"><span>Plano:</span><strong>' + planoClubeSelecionado.nome + '</strong></div>' +
+              '<div class="pg-line pg-total"><span>Mensalidade:</span><strong>' + planoClubeSelecionado.valor + '</strong></div>'
+            ;(window as any).clubePlanoValorNum = valorNum
+            ;(window as any).clubeFormaEscolhida = null
+            document.querySelectorAll(".clube-forma-btn").forEach(b => b.classList.remove("selected"))
+            document.getElementById("tela-clube")?.classList.add("hidden")
+            document.getElementById("tela-clube-pagamento")?.classList.remove("hidden")
+          })
+        }
+
+        // Escolha forma de pagamento do Clube
+        document.getElementById("btn-clube-pagar-pix")?.addEventListener("click", () => {
+          ;(window as any).clubeFormaEscolhida = "pix"
+          document.querySelectorAll(".clube-forma-btn").forEach(b => b.classList.remove("selected"))
+          document.getElementById("btn-clube-pagar-pix")?.classList.add("selected")
+        })
+        document.getElementById("btn-clube-pagar-pessoal")?.addEventListener("click", () => {
+          ;(window as any).clubeFormaEscolhida = "pessoal"
+          document.querySelectorAll(".clube-forma-btn").forEach(b => b.classList.remove("selected"))
+          document.getElementById("btn-clube-pagar-pessoal")?.classList.add("selected")
+        })
+        document.getElementById("btn-clube-pg-voltar")?.addEventListener("click", () => {
+          document.getElementById("tela-clube-pagamento")?.classList.add("hidden")
+          document.getElementById("tela-clube")?.classList.remove("hidden")
+        })
+        document.getElementById("btn-clube-pg-confirmar")?.addEventListener("click", async () => {
+          const w = window as any
+          const forma = w.clubeFormaEscolhida
+          const p = w.clubePlanoAssinatura
+          const valorNum = w.clubePlanoValorNum || 0
+          if (!p) { alert("Sessão perdida. Escolha o plano novamente."); return }
+          if (!forma) { alert("Escolha uma forma de pagamento."); return }
+          const btnC = document.getElementById("btn-clube-pg-confirmar") as HTMLButtonElement
+          btnC.disabled = true; btnC.innerText = "Processando..."
+          try {
+            if (forma === "pessoal") {
+              // Cria solicitação aguardando confirmação do admin — não cria em membros_clube
+              await addDoc(collection(db, "solicitacoes_clube"), {
+                cliente_nome: p.nome,
+                cliente_apelido: p.apelido,
+                cliente_telefone: p.telefone,
+                plano_escolhido: p.plano,
+                valor_plano: p.valor_plano,
+                forma_pagamento: "pessoal",
+                status: "aguardando_confirmacao",
                 criado_em: new Date().toISOString(),
               })
-              clienteEhMembroClube = true
-              clienteCategoriaClube = planoClubeSelecionado.nome
-              alert(
-                `Bem-vindo ao Clube, ${clienteApelido}! Você agora é membro ${planoClubeSelecionado.nome}.\n\nLembrete: agendamentos para membros do Clube são apenas de Terça a Quinta-feira.`
-              )
+              alert("Solicitação enviada!\nAguardando o administrador confirmar seu pagamento presencial para ativar o plano.")
+              document.getElementById("tela-clube-pagamento")?.classList.add("hidden")
               abrirMenuPrincipal()
-            } catch (e) {
-              alert("Erro ao processar.")
-            } finally {
-              btnAderirClube.innerText = "Quero Assinar Este Plano"
+            } else if (forma === "pix") {
+              // Cria solicitação pix + gera QR PagBank
+              const solRef = await addDoc(collection(db, "solicitacoes_clube"), {
+                cliente_nome: p.nome,
+                cliente_apelido: p.apelido,
+                cliente_telefone: p.telefone,
+                plano_escolhido: p.plano,
+                valor_plano: p.valor_plano,
+                forma_pagamento: "pix",
+                status: "aguardando_pagamento",
+                criado_em: new Date().toISOString(),
+              })
+              // Chama backend para criar Pix do Clube (sem reserva de slot)
+              const resp = await fetch("/api/pagbank/clube/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  solicitacao_id: solRef.id,
+                  cliente_nome: p.nome, cliente_telefone: p.telefone,
+                  plano: p.plano, valor_reais: valorNum,
+                }),
+              })
+              const j = await resp.json()
+              if (!resp.ok) {
+                alert("Erro ao gerar Pix do Clube: " + (j.error || resp.status))
+                document.getElementById("tela-clube-pagamento")?.classList.add("hidden")
+                document.getElementById("tela-clube")?.classList.remove("hidden")
+                return
+              }
+              iniciarTelaClubePix(j, solRef.id)
             }
-          })
+          } catch (e: any) {
+            alert("Erro: " + (e?.message || e))
+          } finally {
+            btnC.disabled = false; btnC.innerText = "CONFIRMAR ASSINATURA"
+          }
+        })
+
+        function iniciarTelaClubePix(dados: any, solicitacaoId: string) {
+          const w = window as any
+          w.clubePixSessao = { ...dados, solicitacaoId, expiraEm: new Date(dados.reserva_expira_em).getTime() }
+          document.getElementById("tela-clube-pagamento")?.classList.add("hidden")
+          document.getElementById("tela-clube-pix")?.classList.remove("hidden")
+          const img = document.getElementById("clube-pix-qr") as HTMLImageElement
+          if (img) img.src = dados.qr_code_png_url
+          const cc = document.getElementById("clube-pix-copia") as HTMLTextAreaElement
+          if (cc) cc.value = dados.qr_code_text
+          const v = document.getElementById("clube-pix-valor")
+          if (v) v.innerText = "R$ " + (dados.valor_centavos / 100).toFixed(2).replace(".", ",")
+          atualizarClubeTimer()
+          if (w.clubeTimerInt) clearInterval(w.clubeTimerInt)
+          if (w.clubePollInt) clearInterval(w.clubePollInt)
+          w.clubeTimerInt = setInterval(atualizarClubeTimer, 1000)
+          w.clubePollInt = setInterval(clubePollStatus, 5000)
+        }
+        function atualizarClubeTimer() {
+          const w = window as any
+          const el = document.getElementById("clube-pix-timer")
+          if (!el || !w.clubePixSessao) return
+          const restante = Math.max(0, w.clubePixSessao.expiraEm - Date.now())
+          const min = Math.floor(restante / 60000)
+          const seg = Math.floor((restante % 60000) / 1000)
+          el.innerText = String(min).padStart(2, "0") + ":" + String(seg).padStart(2, "0")
+          if (restante <= 0) {
+            clearInterval(w.clubeTimerInt); clearInterval(w.clubePollInt)
+            alert("Tempo esgotado. Refaça a assinatura.")
+            document.getElementById("tela-clube-pix")?.classList.add("hidden")
+            abrirMenuPrincipal()
+          }
+        }
+        async function clubePollStatus() {
+          const w = window as any
+          if (!w.clubePixSessao) return
+          try {
+            const r = await fetch("/api/pagbank/clube/status?solicitacao_id=" + w.clubePixSessao.solicitacaoId)
+            const j = await r.json()
+            if (j.status === "aguardando_confirmacao" || j.status === "Ativo") {
+              clearInterval(w.clubeTimerInt); clearInterval(w.clubePollInt)
+              alert("Pagamento identificado! Sua assinatura será ativada pelo administrador.")
+              document.getElementById("tela-clube-pix")?.classList.add("hidden")
+              abrirMenuPrincipal()
+            }
+          } catch {}
+        }
+        ;(window as any).clubePixCopiar = function() {
+          const cc = document.getElementById("clube-pix-copia") as HTMLTextAreaElement
+          if (!cc) return
+          cc.select()
+          try { document.execCommand("copy") } catch {}
+          try { (navigator as any)?.clipboard?.writeText(cc.value) } catch {}
+          const b = document.getElementById("btn-clube-copiar-pix")
+          if (b) { b.innerText = "COPIADO ✓"; setTimeout(() => { b.innerText = "COPIAR CÓDIGO PIX" }, 2000) }
+        }
+        ;(window as any).clubePixCancelar = function() {
+          const w = window as any
+          if (w.clubeTimerInt) clearInterval(w.clubeTimerInt)
+          if (w.clubePollInt) clearInterval(w.clubePollInt)
+          document.getElementById("tela-clube-pix")?.classList.add("hidden")
+          abrirMenuPrincipal()
         }
 
         const btnIrAgenda = document.getElementById("btn-ir-agenda")
@@ -1121,10 +1258,8 @@ export default function BarbeariaHiroschi() {
             const desc = (document.getElementById("mov-entrada-desc") as HTMLInputElement)?.value.trim() || ""
             const valor = parseFloat((document.getElementById("mov-entrada-valor") as HTMLInputElement)?.value) || 0
             const dataFin = (document.getElementById("filtro-data-financeiro") as HTMLInputElement)?.value || ""
-            if (!desc || valor <= 0) {
-              alert("Preencha a descrição e um valor válido!")
-              return
-            }
+            const forma = (document.getElementById("mov-entrada-forma") as HTMLSelectElement)?.value || "dinheiro"
+            if (!desc || valor <= 0) { alert("Preencha a descrição e um valor válido!"); return }
             btnAddEntrada.innerText = "Salvando..."
             try {
               await addDoc(collection(db, "caixa_movimentacoes"), {
@@ -1132,6 +1267,7 @@ export default function BarbeariaHiroschi() {
                 descricao: desc,
                 valor: valor,
                 data: dataFin,
+                forma_pagamento: forma,
                 criado_em: new Date().toISOString(),
               })
               ;(document.getElementById("mov-entrada-desc") as HTMLInputElement).value = ""
@@ -1271,28 +1407,40 @@ export default function BarbeariaHiroschi() {
         if (!container) return
         container.innerHTML = "<p style='color: #65676b; text-align:center;'>Buscando seus horários...</p>"
         try {
-          const q = query(collection(db, "agendamentos"), where("cliente_telefone", "==", clienteTelefone))
-          const querySnapshot = await getDocs(q)
+          const telLimpo = String(clienteTelefone || "").replace(/\D/g, "")
+          // Busca todos e filtra em memória — evita problemas de formato (com/sem máscara)
+          const querySnapshot = await getDocs(collection(db, "agendamentos"))
           container.innerHTML = ""
-          if (querySnapshot.empty) {
+          const agendamentos: any[] = []
+          querySnapshot.forEach((docSnap: any) => {
+            const d = docSnap.data()
+            const telDoc = String(d.cliente_telefone || "").replace(/\D/g, "")
+            if (!telDoc || telDoc !== telLimpo) return
+            if (d.status === "Cancelado") return
+            agendamentos.push({ id: docSnap.id, ...d })
+          })
+          if (agendamentos.length === 0) {
             container.innerHTML =
               "<p style='color: #8d949e; text-align:center; margin-top:20px;'>Você não possui horários agendados.</p>"
             return
           }
-          const agendamentos: any[] = []
-          querySnapshot.forEach((docSnap: any) => {
-            agendamentos.push({ id: docSnap.id, ...docSnap.data() })
-          })
-          agendamentos.sort((a, b) => `${a.data} ${a.horario}`.localeCompare(`${b.data} ${b.horario}`))
+          agendamentos.sort((a, b) => `${b.data} ${b.horario}`.localeCompare(`${a.data} ${a.horario}`))
 
           agendamentos.forEach((agenda) => {
-            const [ano, mes, dia] = agenda.data.split("-")
+            const [ano, mes, dia] = String(agenda.data || "").split("-")
+            const status = agenda.status || "Agendado"
+            const formaMap: any = { local: "Pagar no local", pix: "Pix", cartao: "Cartão", dinheiro: "Dinheiro", isento_clube: "Isento — Clube" }
+            const formaTxt = agenda.forma_pagamento ? (formaMap[agenda.forma_pagamento] || agenda.forma_pagamento) : "—"
+            const statusColor = status === "Confirmado" ? "#2e7d32" : (status === "reservado_pix" ? "#a97142" : "#002855")
+            const statusLabel = status === "reservado_pix" ? "Aguardando pagamento Pix" : status
             const div = document.createElement("div")
             div.className = "item-agenda"
             div.innerHTML = `
               <div class="hora-admin">📅 ${dia}/${mes}/${ano} às ${agenda.horario}</div>
               <div style="margin-top: 4px;"><b>Serviço:</b> ${agenda.servico}</div>
               <div style="color: #002855; font-weight: bold; margin-top: 2px;">Valor: R$ ${Number(agenda.preco_total || 0).toFixed(2).replace(".", ",")}</div>
+              <div style="margin-top: 2px; font-size: 12px;"><b>Pagamento:</b> ${formaTxt}</div>
+              <div style="margin-top: 2px; font-size: 12px; color: ${statusColor}; font-weight: bold;">Status: ${statusLabel}</div>
               <button class="btn-deletar" data-id="${agenda.id}" data-data="${agenda.data}" data-horario="${agenda.horario}">❌ Cancelar</button>
             `
             const btnDeletar = div.querySelector(".btn-deletar")
@@ -1756,25 +1904,104 @@ export default function BarbeariaHiroschi() {
 
       async function carregarClubeAdmin() {
         await carregarMembrosClubeAdmin()
+        await carregarSolicitacoesClubeAdmin()
+      }
+
+      // Lista as solicitações pendentes de assinatura do Clube (Pix ou pessoal)
+      async function carregarSolicitacoesClubeAdmin() {
         const lista = document.getElementById("lista-clube-admin")
         if (!lista) return
         lista.innerHTML = "Buscando..."
         try {
           const snap = await getDocs(collection(db, "solicitacoes_clube"))
+          const items: any[] = []
+          snap.forEach((docSnap: any) => items.push({ id: docSnap.id, ...docSnap.data() }))
+          items.sort((a, b) => String(b.criado_em || "").localeCompare(String(a.criado_em || "")))
           lista.innerHTML = ""
-          if (snap.empty) {
-            lista.innerHTML = "<p style='text-align:center; color:#8d949e;'>Nenhum interesse.</p>"
+          if (items.length === 0) {
+            lista.innerHTML = "<p style='text-align:center; color:#8d949e;'>Nenhuma solicitação de assinatura.</p>"
             return
           }
-          snap.forEach((docSnap: any) => {
-            const cl = docSnap.data()
+          const statusMap: any = {
+            aguardando_pagamento: { label: "Aguardando pagamento", cor: "#a97142" },
+            aguardando_confirmacao: { label: "Aguardando confirmação", cor: "#c98900" },
+            Ativo: { label: "Ativo", cor: "#2e7d32" },
+            Recusado: { label: "Recusado", cor: "#d90429" },
+            Cancelado: { label: "Cancelado", cor: "#65676b" },
+          }
+          const formaMap: any = { pix: "Pix (PagBank)", pessoal: "Pagar pessoalmente" }
+          items.forEach((s) => {
+            const st = statusMap[s.status] || { label: s.status || "—", cor: "#333" }
+            const dataFmt = s.criado_em ? new Date(s.criado_em).toLocaleString("pt-BR") : "—"
+            const wa = String(s.cliente_telefone || "").replace(/\D/g, "")
             const div = document.createElement("div")
             div.className = "item-agenda"
-            div.innerHTML = `<div><b>${cl.cliente_nome}</b> (${cl.cliente_apelido})<br>Plano: <b>${cl.plano_escolhido}</b> - ${cl.valor_plano}<br>WhatsApp: ${cl.cliente_telefone}</div>`
+            div.innerHTML = `
+              <div><b>${s.cliente_nome || ""}</b> ${s.cliente_apelido ? "(" + s.cliente_apelido + ")" : ""}</div>
+              <div style="font-size:12px; margin-top:2px;">📱 ${s.cliente_telefone || ""} · <a href="https://wa.me/55${wa}" target="_blank" style="color:#2e7d32; text-decoration:none;">WhatsApp</a></div>
+              <div style="margin-top:4px;"><b>Plano:</b> ${s.plano_escolhido || "—"} — ${s.valor_plano || ""}</div>
+              <div style="font-size:12px; margin-top:2px;"><b>Forma:</b> ${formaMap[s.forma_pagamento] || s.forma_pagamento || "—"}</div>
+              <div style="font-size:12px; margin-top:2px;"><b>Solicitado em:</b> ${dataFmt}</div>
+              <div style="font-size:13px; margin-top:4px; color:${st.cor}; font-weight:bold;">Status: ${st.label}</div>
+              ${s.pix_qr_png_url ? `<div style="margin-top:6px;"><a href="${s.pix_qr_png_url}" target="_blank" style="font-size:12px; color:#002855;">Ver QR Pix</a></div>` : ""}
+              <div style="display:flex; gap:6px; margin-top:8px;">
+                ${s.status === "aguardando_pagamento" || s.status === "aguardando_confirmacao" ? `<button class="btn-cli-confirmar" data-id="${s.id}" style="background-color:#2e7d32; flex:1;">✓ Confirmar Pagamento</button>` : ""}
+                ${s.status !== "Recusado" && s.status !== "Cancelado" && s.status !== "Ativo" ? `<button class="btn-cli-recusar" data-id="${s.id}" style="background-color:#d90429; flex:1;">✗ Recusar</button>` : ""}
+              </div>
+            `
+            const btnC = div.querySelector(".btn-cli-confirmar")
+            if (btnC) btnC.addEventListener("click", async () => {
+              if (!confirm("Confirmar pagamento e ativar o plano " + s.plano_escolhido + " para " + s.cliente_nome + "?")) return
+              const telLimpo = String(s.cliente_telefone || "").replace(/\D/g, "")
+              // Ativa em membros_clube (docId = telefone). Se já existia, faz merge preservando campos antigos.
+              await setDoc(doc(db, "membros_clube", telLimpo), {
+                telefone: telLimpo,
+                nome: s.cliente_nome,
+                apelido: s.cliente_apelido,
+                categoria: s.plano_escolhido,
+                valor_plano: s.valor_plano,
+                status: "Ativo",
+                ativado_em: new Date().toISOString(),
+                criado_em: new Date().toISOString(),
+              }, { merge: true })
+              // Atualiza solicitação para Ativo
+              const { updateDoc } = await import("firebase/firestore")
+              await updateDoc(doc(db, "solicitacoes_clube", s.id), {
+                status: "Ativo",
+                confirmado_em: new Date().toISOString(),
+              })
+              // Registra receita no Caixa se pagamento pessoal (Pix já registra sozinho via webhook Pix da BARBEARIA — clube pix não passa pelo caixa aut. atual; registramos aqui manual)
+              try {
+                const valorNum = Number(String(s.valor_plano || "").replace(/[^\d,]/g, "").replace(",", ".")) || 0
+                if (valorNum > 0) {
+                  await addDoc(collection(db, "caixa_movimentacoes"), {
+                    tipo: "entrada",
+                    descricao: `Clube ${s.plano_escolhido} - ${s.cliente_nome}`,
+                    valor: valorNum,
+                    data: new Date().toLocaleDateString("sv"),
+                    forma_pagamento: s.forma_pagamento === "pix" ? "pix" : "dinheiro",
+                    solicitacao_clube_id: s.id,
+                    criado_em: new Date().toISOString(),
+                  })
+                }
+              } catch (e) { console.error("caixa clube:", e) }
+              alert("Plano ativado!")
+              await carregarClubeAdmin()
+            })
+            const btnR = div.querySelector(".btn-cli-recusar")
+            if (btnR) btnR.addEventListener("click", async () => {
+              if (!confirm("Recusar essa solicitação?")) return
+              const { updateDoc } = await import("firebase/firestore")
+              await updateDoc(doc(db, "solicitacoes_clube", s.id), {
+                status: "Recusado",
+                recusado_em: new Date().toISOString(),
+              })
+              await carregarClubeAdmin()
+            })
             lista.appendChild(div)
           })
         } catch (e) {
-          lista.innerHTML = "Erro."
+          lista.innerHTML = "<p style='color:#d90429;'>Erro ao carregar solicitações.</p>"
         }
       }
 
@@ -1891,6 +2118,8 @@ export default function BarbeariaHiroschi() {
         const container = document.getElementById("config-horarios-dias")
         if (!container) return
         container.innerHTML = ""
+        // Também rende as datas especiais
+        try { (window as any).__renderizarDatasEspeciais?.() } catch {}
         const nomesDias = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
 
         nomesDias.forEach((nome, idx) => {
@@ -2511,8 +2740,40 @@ export default function BarbeariaHiroschi() {
               <div className="plan-desc">Direito a 4 cortes + barba no mês.</div>
             </div>
           </div>
-          <button id="btn-aderir-clube">Quero Assinar Este Plano</button>
+          <button id="btn-aderir-clube">ASSINAR ESTE PLANO</button>
           <button id="btn-voltar-menu" style={{ backgroundColor: "#65676b", color: "#fff", marginTop: "10px" }}>Voltar ao Menu</button>
+        </div>
+
+        <div id="tela-clube-pagamento" className="hidden">
+          <h2>Forma de Pagamento — Clube</h2>
+          <button id="btn-clube-pg-voltar" style={{ backgroundColor: "#65676b", color: "#fff", marginBottom: "12px" }}>← Voltar</button>
+          <div id="clube-pg-resumo" className="pg-resumo"></div>
+          <div className="section-title" style={{ marginTop: "18px" }}>Como você quer pagar?</div>
+          <div className="pg-formas">
+            <button id="btn-clube-pagar-pix" className="pg-forma-btn clube-forma-btn" type="button">
+              <div className="pg-icone">📱</div>
+              <div className="pg-label">PAGAR VIA PIX</div>
+              <div className="pg-sub">QR + confirmação automática</div>
+            </button>
+            <button id="btn-clube-pagar-pessoal" className="pg-forma-btn clube-forma-btn" type="button">
+              <div className="pg-icone">🤝</div>
+              <div className="pg-label">PAGAR PESSOALMENTE</div>
+              <div className="pg-sub">Aguarda confirmação do administrador</div>
+            </button>
+          </div>
+          <button id="btn-clube-pg-confirmar" style={{ marginTop: "20px" }}>CONFIRMAR ASSINATURA</button>
+        </div>
+
+        <div id="tela-clube-pix" className="hidden">
+          <h2>Pagamento Pix — Clube</h2>
+          <div className="pix-timer-box"><span>Expira em</span><div id="clube-pix-timer" className="pix-timer">10:00</div></div>
+          <div className="pix-valor-box">Valor: <strong id="clube-pix-valor">R$ 0,00</strong></div>
+          <div className="pix-qr-wrap"><img id="clube-pix-qr" alt="QR Pix Clube" /></div>
+          <div className="section-title" style={{ marginTop: "12px" }}>Ou copie o código Pix:</div>
+          <textarea id="clube-pix-copia" readOnly rows={4} className="pix-copia-cola"></textarea>
+          <button id="btn-clube-copiar-pix" onClick={() => (window as any).clubePixCopiar?.()} style={{ marginTop: "10px", backgroundColor: "#002855", color: "#fff" }}>COPIAR CÓDIGO PIX</button>
+          <p className="pix-instrucoes">Após o pagamento, sua assinatura ficará <strong>aguardando confirmação</strong> pelo administrador.</p>
+          <button onClick={() => (window as any).clubePixCancelar?.()} style={{ marginTop: "16px", backgroundColor: "#65676b", color: "#fff" }}>VOLTAR AO MENU</button>
         </div>
 
         <div id="tela-servicos" className="hidden">
@@ -2649,7 +2910,7 @@ export default function BarbeariaHiroschi() {
             </div>
             <div className="section-title">Membros do Clube</div>
             <div id="lista-membros-clube" className="card-list"></div>
-            <div className="section-title">Interessados no Clube</div>
+            <div className="section-title">Solicitações de Assinatura</div>
             <div id="lista-clube-admin" className="card-list"></div>
           </div>
           <div id="conteudo-admin-servicos" className="hidden">
@@ -2697,8 +2958,14 @@ export default function BarbeariaHiroschi() {
             <div className="admin-box">
               <h3>Adicionar Entrada Manual</h3>
               <div className="form" style={{ gap: "8px" }}>
-                <input type="text" id="mov-entrada-desc" placeholder="Descrição (Ex: Venda de produto)" style={{ padding: "10px", fontSize: "14px" }} />
+                <input type="text" id="mov-entrada-desc" placeholder="Descrição (Ex: Corte + Barba - João)" style={{ padding: "10px", fontSize: "14px" }} />
                 <input type="number" step="0.01" id="mov-entrada-valor" placeholder="Valor R$" style={{ padding: "10px", fontSize: "14px" }} />
+                <select id="mov-entrada-forma" style={{ padding: "10px", fontSize: "14px" }}>
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="pix">Pix</option>
+                  <option value="cartao">Cartão</option>
+                  <option value="isento_clube">Isento — Clube do Hiroschi</option>
+                </select>
                 <button id="btn-add-entrada" className="btn-add-entrada" style={{ marginTop: "5px", padding: "10px" }}>Adicionar Entrada Manual</button>
               </div>
             </div>
@@ -2747,22 +3014,22 @@ export default function BarbeariaHiroschi() {
               <div id="lista-dias-bloqueados"></div>
             </div>
             <div className="admin-box">
-              <h3>Datas Especiais (Natal, Ano Novo, Feriados)</h3>
-              <p style={{ color: "#65676b", fontSize: "12px", marginTop: "-5px", marginBottom: "10px" }}>Abra ou defina horários específicos para datas futuras — sobrepõe o horário semanal padrão.</p>
+              <h3>Abrir Agenda Futura / Datas Especiais</h3>
+              <p style={{ color: "#65676b", fontSize: "12px", marginTop: "-5px", marginBottom: "10px" }}>Use para ABRIR a agenda de datas futuras específicas (semana do Natal, Ano Novo, feriados) definindo os horários. Também dá para FECHAR uma data específica. As configurações semanais e a lista de "Dias Bloqueados" acima continuam intactas — isto sobrepõe apenas o dia escolhido.</p>
               <div className="form" style={{ gap: "8px" }}>
                 <input type="date" id="esp-data" style={{ padding: "10px", fontSize: "14px" }} />
                 <select id="esp-modo" style={{ padding: "10px", fontSize: "14px" }}>
-                  <option value="aberto">Abrir dia (com horário especial)</option>
-                  <option value="fechado">Fechar dia (bloquear)</option>
+                  <option value="aberto">ABRIR agenda para esta data</option>
+                  <option value="fechado">FECHAR esta data</option>
                 </select>
                 <div style={{ display: "flex", gap: "5px" }}>
                   <input type="time" id="esp-abertura" defaultValue="09:00" style={{ flex: 1, padding: "10px", fontSize: "14px" }} />
                   <input type="time" id="esp-fechamento" defaultValue="18:00" style={{ flex: 1, padding: "10px", fontSize: "14px" }} />
                 </div>
-                <input type="text" id="esp-motivo" placeholder="Motivo (ex: Véspera de Natal)" style={{ padding: "10px", fontSize: "14px" }} />
-                <button id="btn-salvar-data-especial" style={{ padding: "10px", backgroundColor: "#002855" }}>Salvar Data Especial</button>
+                <input type="text" id="esp-motivo" placeholder="Motivo (ex: Véspera de Natal, Feriado)" style={{ padding: "10px", fontSize: "14px" }} />
+                <button id="btn-salvar-data-especial" style={{ padding: "10px", backgroundColor: "#002855" }}>Salvar</button>
               </div>
-              <div className="section-title" style={{ marginTop: "15px" }}>Datas Especiais Cadastradas</div>
+              <div className="section-title" style={{ marginTop: "15px" }}>Datas configuradas</div>
               <div id="lista-datas-especiais"></div>
             </div>
           </div>
