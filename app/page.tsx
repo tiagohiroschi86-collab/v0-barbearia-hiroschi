@@ -142,15 +142,8 @@ export default function BarbeariaHiroschi() {
 
       function obterDataDeHojeValida() {
         const hojeDt = new Date()
-        // Membros do Clube: avança até a próxima Terça, Quarta ou Quinta
-        if (clienteEhMembroClube) {
-          let limite = 0
-          while (![2, 3, 4].includes(hojeDt.getDay()) && limite < 7) {
-            hojeDt.setDate(hojeDt.getDate() + 1)
-            limite++
-          }
-          return hojeDt.toLocaleDateString("sv")
-        }
+        // Regra atualizada: cliente (mesmo membro do Clube) pode escolher qualquer dia.
+        // Ter/Qua/Qui aplicará isenção; Sex/Sab paga normal. Domingo/Segunda pula.
         const diaSemana = hojeDt.getDay()
         if (diaSemana === 0) hojeDt.setDate(hojeDt.getDate() + 2)
         else if (diaSemana === 1) hojeDt.setDate(hojeDt.getDate() + 1)
@@ -404,6 +397,7 @@ export default function BarbeariaHiroschi() {
               target.value = obterDataDeHojeValida()
             }
             await atualizarHorariosDisponiveis()
+            atualizarResumoServicos() // recalcula isenção conforme dia
           })
         }
 
@@ -415,7 +409,11 @@ export default function BarbeariaHiroschi() {
               return
             }
             const dataSel = (document.getElementById("input-data") as HTMLInputElement)?.value || ""
-            const totalPreco = servicosSelecionados.reduce((acc, curr) => acc + Number(curr.preco), 0)
+            // NOVO: calcula total considerando isenção do Clube (Ter/Qua/Qui + serviço incluído)
+            const totalPreco = servicosSelecionados.reduce(
+              (acc, curr) => acc + precoServicoParaCliente(curr, dataSel),
+              0
+            )
             const nomesServicos = servicosSelecionados.map((s) => s.nome).join(" + ")
             const duracaoTotal = calcularDuracaoTotalSelecionada()
 
@@ -431,33 +429,218 @@ export default function BarbeariaHiroschi() {
               return
             }
 
-            btnSalvarAgendamento.innerText = "Agendando..."
-            try {
-              await addDoc(collection(db, "agendamentos"), {
-                cliente_nome: clienteNome,
-                cliente_apelido: clienteApelido,
-                cliente_telefone: clienteTelefone,
-                data: dataSel,
-                horario: horarioSelecionado,
-                servico: nomesServicos,
-                preco_total: totalPreco,
-                duracao_total: duracaoTotal,
-                criado_em: new Date().toISOString(),
-              })
-              ultimoAgendamento = {
-                servico: nomesServicos,
-                data: dataSel,
-                horario: horarioSelecionado || "",
-                total: totalPreco,
-              }
-              document.getElementById("tela-agenda")?.classList.add("hidden")
-              document.getElementById("tela-sucesso")?.classList.remove("hidden")
-            } catch (e) {
-              alert("Erro ao salvar o agendamento.")
-            } finally {
-              btnSalvarAgendamento.innerText = "Confirmar Agendamento"
+            // NOVO: guarda o pré-agendamento em memória e vai para tela de pagamento
+            const w = window as any
+            w.preAgendamento = {
+              cliente_nome: clienteNome,
+              cliente_apelido: clienteApelido,
+              cliente_telefone: clienteTelefone,
+              data: dataSel,
+              horario: horarioSelecionado,
+              servico: nomesServicos,
+              preco_total: totalPreco,
+              duracao_total: duracaoTotal,
             }
+
+            // Renderiza resumo na tela de pagamento
+            const rp = document.getElementById("pg-resumo")
+            if (rp) {
+              rp.innerHTML =
+                '<div class="pg-line"><span>Serviço:</span><strong>' + nomesServicos + '</strong></div>' +
+                '<div class="pg-line"><span>Data:</span><strong>' + dataSel.split("-").reverse().join("/") + '</strong></div>' +
+                '<div class="pg-line"><span>Horário:</span><strong>' + horarioSelecionado + '</strong></div>' +
+                '<div class="pg-line pg-total"><span>Total:</span><strong>R$ ' + totalPreco.toFixed(2).replace(".", ",") + '</strong></div>' +
+                (totalPreco === 0
+                  ? '<div class="pg-isento">🎁 Isento pelo Clube do Hiroschi</div>'
+                  : '')
+            }
+
+            // Se total é R$ 0 (todos isentos pelo clube), só permite "Pagar no Local" (grava direto)
+            const btnPix = document.getElementById("btn-pagar-pix") as HTMLButtonElement
+            const btnLocal = document.getElementById("btn-pagar-local") as HTMLButtonElement
+            if (btnPix && btnLocal) {
+              if (totalPreco === 0) {
+                btnPix.disabled = true
+                btnPix.style.opacity = "0.4"
+                btnPix.title = "Serviço isento — confirmação direta"
+              } else {
+                btnPix.disabled = false
+                btnPix.style.opacity = "1"
+                btnPix.title = ""
+              }
+            }
+            // Reset da seleção da forma
+            w.formaPagamentoEscolhida = null
+            document.querySelectorAll(".pg-forma-btn").forEach(b => b.classList.remove("selected"))
+
+            document.getElementById("tela-agenda")?.classList.add("hidden")
+            document.getElementById("tela-pagamento")?.classList.remove("hidden")
           })
+        }
+
+        // ================= FLUXO DE PAGAMENTO =================
+        // Botão "Pagar no Local"
+        document.getElementById("btn-pagar-local")?.addEventListener("click", () => {
+          const w = window as any
+          w.formaPagamentoEscolhida = "local"
+          document.querySelectorAll(".pg-forma-btn").forEach(b => b.classList.remove("selected"))
+          document.getElementById("btn-pagar-local")?.classList.add("selected")
+        })
+        // Botão "Pagar via Pix"
+        document.getElementById("btn-pagar-pix")?.addEventListener("click", () => {
+          const w = window as any
+          if ((w.preAgendamento?.preco_total || 0) === 0) {
+            alert("Este agendamento é ISENTO pelo Clube. Use 'Pagar no Local' para confirmar.")
+            return
+          }
+          w.formaPagamentoEscolhida = "pix"
+          document.querySelectorAll(".pg-forma-btn").forEach(b => b.classList.remove("selected"))
+          document.getElementById("btn-pagar-pix")?.classList.add("selected")
+        })
+        // Voltar para agenda
+        document.getElementById("btn-pg-voltar")?.addEventListener("click", () => {
+          document.getElementById("tela-pagamento")?.classList.add("hidden")
+          document.getElementById("tela-agenda")?.classList.remove("hidden")
+        })
+        // Confirmar agendamento (após escolher forma)
+        document.getElementById("btn-pg-confirmar")?.addEventListener("click", async () => {
+          const w = window as any
+          const forma = w.formaPagamentoEscolhida
+          const pre = w.preAgendamento
+          if (!pre) { alert("Sessão perdida. Volte e tente novamente."); return }
+          if (!forma) { alert("Escolha uma forma de pagamento."); return }
+          const btnConfirm = document.getElementById("btn-pg-confirmar") as HTMLButtonElement
+          btnConfirm.disabled = true; btnConfirm.innerText = "Processando..."
+          try {
+            if (forma === "local") {
+              // Grava agendamento direto (mantém padrão antigo + novos campos)
+              await addDoc(collection(db, "agendamentos"), {
+                cliente_nome: pre.cliente_nome,
+                cliente_apelido: pre.cliente_apelido,
+                cliente_telefone: pre.cliente_telefone,
+                data: pre.data,
+                horario: pre.horario,
+                servico: pre.servico,
+                preco_total: pre.preco_total,
+                duracao_total: pre.duracao_total,
+                criado_em: new Date().toISOString(),
+                forma_pagamento: "local",
+                status: "Agendado",
+              })
+              ultimoAgendamento = { servico: pre.servico, data: pre.data, horario: pre.horario, total: pre.preco_total }
+              document.getElementById("tela-pagamento")?.classList.add("hidden")
+              document.getElementById("tela-sucesso")?.classList.remove("hidden")
+            } else if (forma === "pix") {
+              // Chama backend para criar reserva atomica + ordem PagBank
+              const resp = await fetch("/api/pagbank/pix/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(pre),
+              })
+              const j = await resp.json()
+              if (!resp.ok) {
+                if (j.error === "SLOT_OCUPADO") {
+                  alert("Este horário acabou de ser reservado por outro cliente. Escolha outro.")
+                } else {
+                  alert("Não foi possível criar a cobrança Pix: " + (j.error || resp.status))
+                }
+                document.getElementById("tela-pagamento")?.classList.add("hidden")
+                document.getElementById("tela-agenda")?.classList.remove("hidden")
+                await atualizarHorariosDisponiveis()
+                return
+              }
+              // Mostra tela Pix com QR + copia-e-cola + timer
+              iniciarTelaPix(j)
+            }
+          } catch (e: any) {
+            alert("Erro: " + (e?.message || e))
+          } finally {
+            btnConfirm.disabled = false; btnConfirm.innerText = "CONFIRMAR AGENDAMENTO"
+          }
+        })
+
+        // ================= TELA PIX =================
+        function iniciarTelaPix(dados: any) {
+          const w = window as any
+          w.pixSessao = { ...dados, expiraEm: new Date(dados.reserva_expira_em).getTime() }
+          document.getElementById("tela-pagamento")?.classList.add("hidden")
+          document.getElementById("tela-pix")?.classList.remove("hidden")
+          const img = document.getElementById("pix-qr-img") as HTMLImageElement
+          if (img) img.src = dados.qr_code_png_url
+          const cpc = document.getElementById("pix-copia-cola") as HTMLTextAreaElement
+          if (cpc) cpc.value = dados.qr_code_text
+          const valor = document.getElementById("pix-valor")
+          if (valor) valor.innerText = "R$ " + (dados.valor_centavos / 100).toFixed(2).replace(".", ",")
+          atualizarTimerPix()
+          if (w.pixTimerInt) clearInterval(w.pixTimerInt)
+          if (w.pixPollInt) clearInterval(w.pixPollInt)
+          w.pixTimerInt = setInterval(atualizarTimerPix, 1000)
+          w.pixPollInt = setInterval(() => pollPix(), 5000)
+          setTimeout(() => pollPix(), 3000) // primeiro poll rápido
+        }
+        function atualizarTimerPix() {
+          const w = window as any
+          const el = document.getElementById("pix-timer")
+          if (!el || !w.pixSessao) return
+          const restante = Math.max(0, w.pixSessao.expiraEm - Date.now())
+          const min = Math.floor(restante / 60000)
+          const seg = Math.floor((restante % 60000) / 1000)
+          el.innerText = String(min).padStart(2, "0") + ":" + String(seg).padStart(2, "0")
+          if (restante <= 0) {
+            clearInterval(w.pixTimerInt)
+            clearInterval(w.pixPollInt)
+            alert("Tempo esgotado. O horário foi liberado. Tente novamente.")
+            document.getElementById("tela-pix")?.classList.add("hidden")
+            document.getElementById("tela-menu")?.classList.remove("hidden")
+          }
+        }
+        async function pollPix() {
+          const w = window as any
+          if (!w.pixSessao) return
+          try {
+            const r = await fetch("/api/pagbank/pix/status?agendamento_id=" + w.pixSessao.agendamento_id)
+            const j = await r.json()
+            if (j.status === "Confirmado") {
+              clearInterval(w.pixTimerInt); clearInterval(w.pixPollInt)
+              ultimoAgendamento = {
+                servico: w.preAgendamento?.servico || "",
+                data: w.preAgendamento?.data || "",
+                horario: w.preAgendamento?.horario || "",
+                total: w.preAgendamento?.preco_total || 0,
+              }
+              document.getElementById("tela-pix")?.classList.add("hidden")
+              document.getElementById("tela-sucesso")?.classList.remove("hidden")
+            } else if (j.status === "Cancelado") {
+              clearInterval(w.pixTimerInt); clearInterval(w.pixPollInt)
+              alert("Reserva cancelada (expirada). Faça o agendamento novamente.")
+              document.getElementById("tela-pix")?.classList.add("hidden")
+              document.getElementById("tela-menu")?.classList.remove("hidden")
+            }
+          } catch (e) { /* silencia */ }
+        }
+        ;(window as any).pixCopiarCola = function() {
+          const cpc = document.getElementById("pix-copia-cola") as HTMLTextAreaElement
+          if (!cpc) return
+          cpc.select()
+          try { document.execCommand("copy") } catch {}
+          try { (navigator as any)?.clipboard?.writeText(cpc.value) } catch {}
+          const btn = document.getElementById("btn-copiar-pix")
+          if (btn) { btn.innerText = "COPIADO ✓"; setTimeout(() => { btn.innerText = "COPIAR CÓDIGO PIX" }, 2000) }
+        }
+        ;(window as any).pixCancelar = async function() {
+          const w = window as any
+          if (!w.pixSessao) return
+          if (!confirm("Cancelar o pagamento e voltar? O horário será liberado.")) return
+          clearInterval(w.pixTimerInt); clearInterval(w.pixPollInt)
+          try {
+            await fetch("/api/pagbank/pix/cancel", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agendamento_id: w.pixSessao.agendamento_id, motivo: "user_cancel" }),
+            })
+          } catch {}
+          document.getElementById("tela-pix")?.classList.add("hidden")
+          document.getElementById("tela-menu")?.classList.remove("hidden")
         }
 
         document.getElementById("btn-abrir-admin")?.addEventListener("click", () => {
@@ -878,8 +1061,35 @@ export default function BarbeariaHiroschi() {
         })
       }
 
+      // Helper: verifica se o serviço específico é ISENTO para o cliente-membro na data selecionada
+      // Regras:
+      //  - Cliente precisa ser membro ativo do Clube
+      //  - Dia da semana precisa ser Terça (2), Quarta (3) ou Quinta (4)
+      //  - Serviço precisa estar em servicos_incluidos do membro (se lista existir) OU
+      //    fallback: cliente é membro e não tem lista específica → todos os serviços são incluídos
+      function servicoIsentoNoDia(servicoNome: string, dataStr: string) {
+        if (!clienteEhMembroClube) return false
+        if (!dataStr) return false
+        const partes = dataStr.split("-")
+        const dia = new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2])).getDay()
+        if (![2, 3, 4].includes(dia)) return false
+        const w = window as any
+        const incluidos: string[] = Array.isArray(w.clienteServicosIncluidos) ? w.clienteServicosIncluidos : []
+        if (incluidos.length === 0) return true // fallback retrocompatível
+        const alvo = (servicoNome || "").trim().toLowerCase()
+        return incluidos.some(s => (s || "").trim().toLowerCase() === alvo)
+      }
+
+      function precoServicoParaCliente(s: any, dataStr: string) {
+        return servicoIsentoNoDia(s?.nome || "", dataStr) ? 0 : Number(s?.preco || 0)
+      }
+
       function atualizarResumoServicos() {
-        const total = servicosSelecionados.reduce((acc, curr) => acc + Number(curr.preco), 0)
+        const dataSel = (document.getElementById("input-data") as HTMLInputElement)?.value || ""
+        const total = servicosSelecionados.reduce(
+          (acc, curr) => acc + precoServicoParaCliente(curr, dataSel),
+          0
+        )
         const resumoQtd = document.getElementById("resumo-qtd")
         const resumoTotal = document.getElementById("resumo-total")
         if (resumoQtd) resumoQtd.innerText = String(servicosSelecionados.length)
@@ -895,13 +1105,9 @@ export default function BarbeariaHiroschi() {
           alert("A barbearia não funciona neste dia da semana.")
           return false
         }
-        // Membros do Clube só agendam Terça (2), Quarta (3) e Quinta (4)
-        if (clienteEhMembroClube && ![2, 3, 4].includes(diaSemana)) {
-          alert(
-            "Como membro do Clube do Hiroschi, os agendamentos estão disponíveis apenas de Terça a Quinta-feira."
-          )
-          return false
-        }
+        // Regra do Clube do Hiroschi:
+        //  - Terça (2), Quarta (3) e Quinta (4): serviços incluídos ficam ISENTOS
+        //  - Sexta/Sábado: agendamento permitido, mas com preço NORMAL (sem consumir benefício)
         if (configFuncionamento.diasBloqueados.includes(dataString)) {
           alert("Este dia está bloqueado (Férias/Feriado). Escolha outra data.")
           return false
@@ -969,12 +1175,8 @@ export default function BarbeariaHiroschi() {
             "<p style='color: #d90429; grid-column: span 3; text-align:center; font-weight:bold;'>Fechado neste dia da semana.</p>"
           return
         }
-        // Restrição para membros do Clube: somente Terça, Quarta e Quinta
-        if (clienteEhMembroClube && ![2, 3, 4].includes(diaSemanaSel)) {
-          container.innerHTML =
-            "<p style='color: #d90429; grid-column: span 3; text-align:center; font-weight:bold;'>Membros do Clube do Hiroschi agendam apenas de Terça a Quinta-feira.</p>"
-          return
-        }
+        // Restrição para membros do Clube: sem bloqueio de dia.
+        // Sex/Sab é permitido (paga preço normal, sem consumir benefício do clube).
         const horariosDoDia = gerarHorarios(cfgDia.abertura, cfgDia.fechamento)
 
         try {
@@ -983,10 +1185,15 @@ export default function BarbeariaHiroschi() {
 
           // Monta os intervalos ocupados [inicio, fim) em minutos, considerando a
           // duração de cada serviço já agendado (bloqueio por tempo de serviço).
+          // Ignora agendamentos com status "Cancelado" e reservas Pix cujo prazo já expirou.
+          const nowMs = Date.now()
           const intervalosOcupados: { inicio: number; fim: number }[] = []
           querySnapshot.forEach((docSnap: any) => {
             const ag = docSnap.data()
             if (!ag.horario) return
+            if (ag.status === "Cancelado") return
+            if (ag.status === "reservado_pix" && ag.reserva_expira_em &&
+                new Date(ag.reserva_expira_em).getTime() < nowMs) return
             const inicio = converterHoraParaMinutos(ag.horario)
             const duracao = Number(ag.duracao_total) > 0 ? Number(ag.duracao_total) : 30
             intervalosOcupados.push({ inicio, fim: inicio + duracao })
@@ -1186,14 +1393,23 @@ export default function BarbeariaHiroschi() {
       async function carregarStatusMembroCliente() {
         clienteEhMembroClube = false
         clienteCategoriaClube = null
+        ;(window as any).clienteServicosIncluidos = []
         const telLimpo = String(clienteTelefone || "").replace(/\D/g, "")
         if (!telLimpo) return
         try {
           const refMembro = doc(db, "membros_clube", telLimpo)
           const snap = await getDoc(refMembro)
           if (snap.exists()) {
-            clienteEhMembroClube = true
-            clienteCategoriaClube = snap.data().categoria || null
+            const dados = snap.data()
+            // Retrocompatível: registros antigos sem 'status' e sem 'ativado_em' seguem ATIVOS.
+            const statusOK = !dados.status || dados.status === "Ativo"
+            if (statusOK) {
+              clienteEhMembroClube = true
+              clienteCategoriaClube = dados.categoria || null
+              if (Array.isArray(dados.servicos_incluidos)) {
+                ;(window as any).clienteServicosIncluidos = dados.servicos_incluidos
+              }
+            }
           }
         } catch (e) {
           console.error("[v0] Erro ao verificar membro do clube:", e)
@@ -1678,6 +1894,28 @@ export default function BarbeariaHiroschi() {
           position: relative;
         }
         .hidden { display: none !important; }
+        /* ====== Tela de pagamento (Local vs Pix) ====== */
+        .pg-resumo { background:#f7f8fa; border-radius:10px; padding:14px; border:1px solid #e4e6eb; }
+        .pg-line { display:flex; justify-content:space-between; padding:4px 0; font-size:14px; color:#333; }
+        .pg-line.pg-total { border-top:1px solid #e4e6eb; margin-top:8px; padding-top:10px; font-size:16px; color:#002855; }
+        .pg-isento { margin-top:8px; padding:8px; background:#e6ffed; border:1px solid #34c759; border-radius:6px; text-align:center; color:#0a6b1e; font-weight:bold; font-size:13px; }
+        .pg-formas { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+        .pg-forma-btn { background:#fff !important; color:#002855 !important; border:2px solid #ccd1d9 !important; border-radius:12px; padding:14px 12px !important; text-align:left; cursor:pointer; transition:all 0.2s; }
+        .pg-forma-btn.selected { border-color:#d90429 !important; background:#fff5f5 !important; box-shadow:0 0 0 3px rgba(217,4,41,0.1); }
+        .pg-forma-btn .pg-icone { font-size:22px; }
+        .pg-forma-btn .pg-label { font-weight:bold; font-size:15px; margin-top:2px; }
+        .pg-forma-btn .pg-sub { font-size:12px; color:#65676b; margin-top:2px; }
+        .pg-forma-btn:disabled { cursor:not-allowed; }
+        /* ====== Tela Pix ====== */
+        .pix-timer-box { text-align:center; background:#fff5f5; border:1px solid #ffb3b3; border-radius:10px; padding:10px; }
+        .pix-timer-box span { color:#65676b; font-size:12px; display:block; }
+        .pix-timer { font-size:32px; color:#d90429; font-weight:bold; letter-spacing:2px; margin-top:2px; }
+        .pix-valor-box { text-align:center; padding:12px; background:#f0f8ff; border-radius:8px; font-size:15px; color:#333; margin-top:12px; }
+        .pix-valor-box strong { color:#002855; font-size:18px; }
+        .pix-qr-wrap { display:flex; justify-content:center; margin-top:16px; }
+        .pix-qr-wrap img { width:230px; height:230px; background:#fff; padding:6px; border:1px solid #e4e6eb; border-radius:8px; object-fit:contain; }
+        .pix-copia-cola { width:100%; padding:10px; border:1px solid #ccd1d9; border-radius:8px; font-family:monospace; font-size:11px; word-break:break-all; box-sizing:border-box; resize:none; color:#333; background:#f7f8fa; }
+        .pix-instrucoes { font-size:13px; color:#65676b; margin-top:14px; line-height:1.6; }
         #logo { font-size: 24px; color: #002855; text-align: center; margin-top: 10px; margin-bottom: 25px; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; }
         h2 { font-size: 18px; color: #002855; margin-bottom: 15px; text-align: center; font-weight: bold; }
         .form { width: 100%; display: flex; flex-direction: column; gap: 15px; }
@@ -1900,6 +2138,50 @@ export default function BarbeariaHiroschi() {
           <div id="aviso-restricao" className="aviso-servico hidden">Aviso: Horários limitados para este serviço até as 17:00.</div>
           <div className="grid-horarios" id="container-horarios"></div>
           <button id="btn-salvar-agendamento" style={{ marginTop: "30px" }}>Confirmar Agendamento</button>
+        </div>
+
+        <div id="tela-pagamento" className="hidden">
+          <h2>Forma de Pagamento</h2>
+          <button id="btn-pg-voltar" style={{ backgroundColor: "#65676b", color: "#fff", marginBottom: "15px", padding: "10px" }}>← Voltar</button>
+          <div id="pg-resumo" className="pg-resumo"></div>
+          <div className="section-title" style={{ marginTop: "18px" }}>Como você quer pagar?</div>
+          <div className="pg-formas">
+            <button id="btn-pagar-local" className="pg-forma-btn" type="button">
+              <div className="pg-icone">🏪</div>
+              <div className="pg-label">PAGAR NO LOCAL</div>
+              <div className="pg-sub">Pague em dinheiro/cartão na barbearia</div>
+            </button>
+            <button id="btn-pagar-pix" className="pg-forma-btn" type="button">
+              <div className="pg-icone">📱</div>
+              <div className="pg-label">PAGAR VIA PIX</div>
+              <div className="pg-sub">Reserva por 10 min, confirmação automática</div>
+            </button>
+          </div>
+          <button id="btn-pg-confirmar" style={{ marginTop: "24px" }}>CONFIRMAR AGENDAMENTO</button>
+        </div>
+
+        <div id="tela-pix" className="hidden">
+          <h2>Pagamento Pix</h2>
+          <div className="pix-timer-box">
+            <span>Reserva expira em</span>
+            <div id="pix-timer" className="pix-timer">10:00</div>
+          </div>
+          <div className="pix-valor-box">
+            Valor a pagar: <strong id="pix-valor">R$ 0,00</strong>
+          </div>
+          <div className="pix-qr-wrap">
+            <img id="pix-qr-img" alt="QR Code Pix" />
+          </div>
+          <div className="section-title" style={{ marginTop: "16px" }}>Ou copie o código Pix (copia e cola):</div>
+          <textarea id="pix-copia-cola" readOnly rows={4} className="pix-copia-cola"></textarea>
+          <button id="btn-copiar-pix" onClick={() => (window as any).pixCopiarCola?.()} style={{ marginTop: "10px", backgroundColor: "#002855", color: "#fff" }}>COPIAR CÓDIGO PIX</button>
+          <p className="pix-instrucoes">
+            1. Abra seu app do banco<br />
+            2. Escaneie o QR ou cole o código<br />
+            3. Confirme o pagamento<br />
+            <strong>A confirmação chegará automaticamente. Não feche esta tela.</strong>
+          </p>
+          <button id="btn-cancelar-pix" onClick={() => (window as any).pixCancelar?.()} style={{ marginTop: "18px", backgroundColor: "#65676b", color: "#fff" }}>CANCELAR E VOLTAR</button>
         </div>
 
         <div id="tela-sucesso" className="hidden">
