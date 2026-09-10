@@ -101,3 +101,114 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Preview stuck on "Building something incredible" splash screen instead of loading the imported
+  Barbearia Hiroschi Next.js/Firebase app. Fix the Preview environment configuration and ensure the
+  app renders properly. Do not deploy, do not change production, and do not touch the Firebase data.
+
+frontend:
+  - task: "Preview serves the Barbearia Hiroschi app (not template splash)"
+    implemented: true
+    working: true
+    file: "app/page.tsx (formerly at /app/barbearia-hiroschi/app/page.tsx, now at /app/app/page.tsx)"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            User reported Preview stuck on "Building something incredible". Root cause: supervisor was
+            running `yarn dev` in /app which contained the Emergent Next.js template, not the imported
+            Barbearia app (kept in /app/barbearia-hiroschi). Fix applied:
+            1) Moved template files (app/, package.json, next.config.mjs, tsconfig.json, components.json,
+               components/, lib/, hooks/, public/, styles/, lockfiles) to /app/_template_backup/.
+            2) Copied barbearia files (app/, components/, hooks/, lib/, public/, styles/, package.json,
+               next.config.mjs, postcss.config.mjs, tsconfig.json, components.json, pnpm-lock.yaml)
+               to /app/, preserving /app/.env and /app/.git.
+            3) Added `allowedDevOrigins: ['hiroschi-dev-preview.preview.emergentagent.com',
+               'hiroschi-dev-preview.cluster-1.preview.emergentcf.cloud']` to /app/next.config.mjs
+               so Next 16 does not block cross-origin dev chunks/HMR from the preview host.
+            4) Deleted stale /app/.next cache and node_modules; ran `yarn install` in /app (191s, 135
+               top-level deps; recharts 2.15 warning about EOL is non-blocking).
+            5) `sudo supervisorctl restart nextjs` → "▲ Next.js 16.2.6 (Turbopack) ✓ Ready in 711ms".
+            6) Local curl HTTP 200, ~32KB, HTML contains "Barbearia Hiroschi", "phone-simulator",
+               "status-conexao", "tela-login". No more "Building something incredible".
+            Needs verification with the public preview URL from the browser to confirm chunks/HMR
+            load correctly and the client-side Firestore initialization runs (window.firebaseDb becomes
+            defined and styled-jsx global styles are applied to the phone-simulator container).
+            Test scope: this is ONLY a preview boot fix. Do NOT test PagBank/Pix flow — that has not
+            been implemented yet (waiting on user to set PAGBANK_ACCESS_TOKEN as env var in /app/.env).
+        - working: true
+          agent: "testing"
+          comment: |
+            ✅ VERIFIED - All tests passed (7/7) on public preview URL https://hiroschi-dev-preview.preview.emergentagent.com
+            
+            Test Results:
+            1. ✓ Page loads with HTTP 200
+            2. ✓ "Building something incredible" template splash is GONE
+            3. ✓ Barbearia Hiroschi branding visible (logo + "Agende seu Horário" heading)
+            4. ✓ All login screen elements present:
+               - WhatsApp input field (#login-whatsapp)
+               - "ACESSAR SISTEMA" red button (#btn-verificar-whats)
+               - "ACESSO DO PROPRIETÁRIO" link (#btn-abrir-admin)
+            5. ✓ Phone simulator styling correctly applied:
+               - Border: 4px solid rgb(0, 40, 85) [dark navy #002855]
+               - Background: white
+               - Border radius: 30px
+               - Page background: rgb(240, 242, 245) [#f0f2f5]
+            6. ✓ Firebase initialized successfully - window.firebaseDb defined as object after 1 second
+            7. ✓ No console errors or fatal issues
+            
+            Screenshot confirms the app renders perfectly with all styled-jsx global styles applied.
+            React hydration successful. The preview is now serving the Barbearia Hiroschi app correctly.
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 2
+  run_ui: true
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Bug: Preview stuck on "Building something incredible". Fixed by making /app serve the
+        Barbearia Hiroschi app instead of the Emergent Next.js template, and adding allowedDevOrigins
+        for Next 16 cross-origin dev safety block. Please verify from the public preview URL:
+        https://hiroschi-dev-preview.preview.emergentagent.com
+
+        Expected behavior:
+        - Page loads with HTTP 200 (already confirmed via curl).
+        - Phone-simulator container renders styled (dark navy border, white bg, rounded, centered
+          on gray background #f0f2f5) — driven by styled-jsx global rules in app/page.tsx.
+        - Login screen visible with "Barbearia Hiroschi" logo (dark navy #002855), whatsapp input,
+          "Acessar Sistema" red button (#d90429), "Acesso do Proprietário" small underlined link.
+        - After React hydration, window.firebaseDb should be defined (Firestore SDK initialized).
+        - No "Building something incredible" text anywhere.
+
+        DO NOT test PagBank/Pix — not implemented yet. DO NOT try admin functions or attempt to write
+        to Firestore (production data). Just confirm the preview renders the app correctly.
+    - agent: "testing"
+      message: |
+        ✅ PREVIEW FIX VERIFIED - All tests passed successfully!
+        
+        The preview at https://hiroschi-dev-preview.preview.emergentagent.com is now correctly serving
+        the Barbearia Hiroschi app. All 7 verification tests passed:
+        
+        ✓ HTTP 200 response
+        ✓ "Building something incredible" template splash is completely gone
+        ✓ Barbearia Hiroschi login screen renders with all expected elements
+        ✓ Phone simulator styling perfectly applied (4px dark navy border, white bg, 30px radius)
+        ✓ Firebase SDK initialized (window.firebaseDb defined after 1 second)
+        ✓ React hydration successful (styled-jsx global styles applied)
+        ✓ No console errors or fatal issues
+        
+        Screenshot confirms the app is rendering beautifully with proper styling. The fix is complete
+        and working as expected. No further action needed for this issue.
