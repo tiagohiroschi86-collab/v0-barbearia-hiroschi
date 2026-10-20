@@ -559,7 +559,6 @@ export default function BarbeariaHiroschi() {
               return
             }
             const dataSel = (document.getElementById("input-data") as HTMLInputElement)?.value || ""
-            // NOVO: calcula total considerando isenção do Clube (Ter/Qua/Qui + serviço incluído)
             const totalPreco = servicosSelecionados.reduce(
               (acc, curr) => acc + precoServicoParaCliente(curr, dataSel),
               0
@@ -567,231 +566,53 @@ export default function BarbeariaHiroschi() {
             const nomesServicos = servicosSelecionados.map((s) => s.nome).join(" + ")
             const duracaoTotal = calcularDuracaoTotalSelecionada()
 
-            // Revalida a antecedência mínima de 6 horas no momento de confirmar
+            // Antecedência mínima: 3 horas
             const agoraConfirm = new Date()
             const [aC, mC, dC] = dataSel.split("-")
             const [hC, minC] = (horarioSelecionado || "").split(":")
             const dataHoraSlot = new Date(Number(aC), Number(mC) - 1, Number(dC), Number(hC), Number(minC), 0)
             const horasAntecedencia = (dataHoraSlot.getTime() - agoraConfirm.getTime()) / (1000 * 60 * 60)
-            if (horasAntecedencia < 6) {
-              alert("Agendamentos só podem ser feitos com no mínimo 6 horas de antecedência. Escolha outro horário.")
+            if (horasAntecedencia < 3) {
+              alert("Agendamentos só podem ser feitos com no mínimo 3 horas de antecedência. Escolha outro horário.")
               await atualizarHorariosDisponiveis()
               return
             }
 
-            // NOVO: guarda o pré-agendamento em memória e vai para tela de pagamento
-            const w = window as any
-            w.preAgendamento = {
-              cliente_nome: clienteNome,
-              cliente_apelido: clienteApelido,
-              cliente_telefone: clienteTelefone,
-              data: dataSel,
-              horario: horarioSelecionado,
-              servico: nomesServicos,
-              preco_total: totalPreco,
-              duracao_total: duracaoTotal,
-            }
-
-            // Renderiza resumo na tela de pagamento
-            const rp = document.getElementById("pg-resumo")
-            if (rp) {
-              rp.innerHTML =
-                '<div class="pg-line"><span>Serviço:</span><strong>' + nomesServicos + '</strong></div>' +
-                '<div class="pg-line"><span>Data:</span><strong>' + dataSel.split("-").reverse().join("/") + '</strong></div>' +
-                '<div class="pg-line"><span>Horário:</span><strong>' + horarioSelecionado + '</strong></div>' +
-                '<div class="pg-line pg-total"><span>Total:</span><strong>R$ ' + totalPreco.toFixed(2).replace(".", ",") + '</strong></div>' +
-                (totalPreco === 0
-                  ? '<div class="pg-isento">🎁 Isento pelo Clube do Hiroschi</div>'
-                  : '')
-            }
-
-            // Se total é R$ 0 (todos isentos pelo clube), só permite "Pagar no Local" (grava direto)
-            const btnPix = document.getElementById("btn-pagar-pix") as HTMLButtonElement
-            const btnLocal = document.getElementById("btn-pagar-local") as HTMLButtonElement
-            if (btnPix && btnLocal) {
-              if (totalPreco === 0) {
-                btnPix.disabled = true
-                btnPix.style.opacity = "0.4"
-                btnPix.title = "Serviço isento — confirmação direta"
-              } else {
-                btnPix.disabled = false
-                btnPix.style.opacity = "1"
-                btnPix.title = ""
+            const btnEl = btnSalvarAgendamento as HTMLButtonElement
+            btnEl.disabled = true
+            btnEl.innerText = "Agendando..."
+            try {
+              const isentoClube = totalPreco === 0 && clienteEhMembroClube
+              await addDoc(collection(db, "agendamentos"), {
+                cliente_nome: clienteNome,
+                cliente_apelido: clienteApelido,
+                cliente_telefone: clienteTelefone,
+                data: dataSel,
+                horario: horarioSelecionado,
+                servico: nomesServicos,
+                preco_total: totalPreco,
+                duracao_total: duracaoTotal,
+                criado_em: new Date().toISOString(),
+                status: "Agendado",
+                forma_pagamento: isentoClube ? "isento_clube" : "",
+              })
+              ultimoAgendamento = {
+                servico: nomesServicos,
+                data: dataSel,
+                horario: horarioSelecionado || "",
+                total: totalPreco,
               }
+              document.getElementById("tela-agenda")?.classList.add("hidden")
+              document.getElementById("tela-sucesso")?.classList.remove("hidden")
+            } catch (e) {
+              alert("Erro ao salvar o agendamento.")
+            } finally {
+              btnEl.disabled = false
+              btnEl.innerText = "CONFIRMAR AGENDAMENTO"
             }
-            // Reset da seleção da forma
-            w.formaPagamentoEscolhida = null
-            document.querySelectorAll(".pg-forma-btn").forEach(b => b.classList.remove("selected"))
-
-            document.getElementById("tela-agenda")?.classList.add("hidden")
-            document.getElementById("tela-pagamento")?.classList.remove("hidden")
           })
         }
 
-        // ================= FLUXO DE PAGAMENTO =================
-        // Botão "Pagar no Local"
-        document.getElementById("btn-pagar-local")?.addEventListener("click", () => {
-          const w = window as any
-          w.formaPagamentoEscolhida = "local"
-          document.querySelectorAll(".pg-forma-btn").forEach(b => b.classList.remove("selected"))
-          document.getElementById("btn-pagar-local")?.classList.add("selected")
-        })
-        // Botão "Pagar via Pix"
-        document.getElementById("btn-pagar-pix")?.addEventListener("click", () => {
-          const w = window as any
-          if ((w.preAgendamento?.preco_total || 0) === 0) {
-            alert("Este agendamento é ISENTO pelo Clube. Use 'Pagar no Local' para confirmar.")
-            return
-          }
-          w.formaPagamentoEscolhida = "pix"
-          document.querySelectorAll(".pg-forma-btn").forEach(b => b.classList.remove("selected"))
-          document.getElementById("btn-pagar-pix")?.classList.add("selected")
-        })
-        // Voltar para agenda
-        document.getElementById("btn-pg-voltar")?.addEventListener("click", () => {
-          document.getElementById("tela-pagamento")?.classList.add("hidden")
-          document.getElementById("tela-agenda")?.classList.remove("hidden")
-        })
-        // Confirmar agendamento (após escolher forma)
-        document.getElementById("btn-pg-confirmar")?.addEventListener("click", async () => {
-          const w = window as any
-          const forma = w.formaPagamentoEscolhida
-          const pre = w.preAgendamento
-          if (!pre) { alert("Sessão perdida. Volte e tente novamente."); return }
-          if (!forma) { alert("Escolha uma forma de pagamento."); return }
-          const btnConfirm = document.getElementById("btn-pg-confirmar") as HTMLButtonElement
-          btnConfirm.disabled = true; btnConfirm.innerText = "Processando..."
-          try {
-            if (forma === "local") {
-              // Grava agendamento direto (mantém padrão antigo + novos campos)
-              await addDoc(collection(db, "agendamentos"), {
-                cliente_nome: pre.cliente_nome,
-                cliente_apelido: pre.cliente_apelido,
-                cliente_telefone: pre.cliente_telefone,
-                data: pre.data,
-                horario: pre.horario,
-                servico: pre.servico,
-                preco_total: pre.preco_total,
-                duracao_total: pre.duracao_total,
-                criado_em: new Date().toISOString(),
-                forma_pagamento: "local",
-                status: "Agendado",
-              })
-              ultimoAgendamento = { servico: pre.servico, data: pre.data, horario: pre.horario, total: pre.preco_total }
-              document.getElementById("tela-pagamento")?.classList.add("hidden")
-              document.getElementById("tela-sucesso")?.classList.remove("hidden")
-            } else if (forma === "pix") {
-              // Chama backend para criar reserva atomica + ordem PagBank
-              const resp = await fetch("/api/pagbank/pix/create", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(pre),
-              })
-              const j = await resp.json()
-              if (!resp.ok) {
-                if (j.error === "SLOT_OCUPADO") {
-                  alert("Este horário acabou de ser reservado por outro cliente. Escolha outro.")
-                } else {
-                  alert("Não foi possível criar a cobrança Pix: " + (j.error || resp.status))
-                }
-                document.getElementById("tela-pagamento")?.classList.add("hidden")
-                document.getElementById("tela-agenda")?.classList.remove("hidden")
-                await atualizarHorariosDisponiveis()
-                return
-              }
-              // Mostra tela Pix com QR + copia-e-cola + timer
-              iniciarTelaPix(j)
-            }
-          } catch (e: any) {
-            alert("Erro: " + (e?.message || e))
-          } finally {
-            btnConfirm.disabled = false; btnConfirm.innerText = "CONFIRMAR AGENDAMENTO"
-          }
-        })
-
-        // ================= TELA PIX =================
-        function iniciarTelaPix(dados: any) {
-          const w = window as any
-          w.pixSessao = { ...dados, expiraEm: new Date(dados.reserva_expira_em).getTime() }
-          document.getElementById("tela-pagamento")?.classList.add("hidden")
-          document.getElementById("tela-pix")?.classList.remove("hidden")
-          const img = document.getElementById("pix-qr-img") as HTMLImageElement
-          if (img) img.src = dados.qr_code_png_url
-          const cpc = document.getElementById("pix-copia-cola") as HTMLTextAreaElement
-          if (cpc) cpc.value = dados.qr_code_text
-          const valor = document.getElementById("pix-valor")
-          if (valor) valor.innerText = "R$ " + (dados.valor_centavos / 100).toFixed(2).replace(".", ",")
-          atualizarTimerPix()
-          if (w.pixTimerInt) clearInterval(w.pixTimerInt)
-          if (w.pixPollInt) clearInterval(w.pixPollInt)
-          w.pixTimerInt = setInterval(atualizarTimerPix, 1000)
-          w.pixPollInt = setInterval(() => pollPix(), 5000)
-          setTimeout(() => pollPix(), 3000) // primeiro poll rápido
-        }
-        function atualizarTimerPix() {
-          const w = window as any
-          const el = document.getElementById("pix-timer")
-          if (!el || !w.pixSessao) return
-          const restante = Math.max(0, w.pixSessao.expiraEm - Date.now())
-          const min = Math.floor(restante / 60000)
-          const seg = Math.floor((restante % 60000) / 1000)
-          el.innerText = String(min).padStart(2, "0") + ":" + String(seg).padStart(2, "0")
-          if (restante <= 0) {
-            clearInterval(w.pixTimerInt)
-            clearInterval(w.pixPollInt)
-            alert("Tempo esgotado. O horário foi liberado. Tente novamente.")
-            document.getElementById("tela-pix")?.classList.add("hidden")
-            document.getElementById("tela-menu")?.classList.remove("hidden")
-          }
-        }
-        async function pollPix() {
-          const w = window as any
-          if (!w.pixSessao) return
-          try {
-            const r = await fetch("/api/pagbank/pix/status?agendamento_id=" + w.pixSessao.agendamento_id)
-            const j = await r.json()
-            if (j.status === "Confirmado") {
-              clearInterval(w.pixTimerInt); clearInterval(w.pixPollInt)
-              ultimoAgendamento = {
-                servico: w.preAgendamento?.servico || "",
-                data: w.preAgendamento?.data || "",
-                horario: w.preAgendamento?.horario || "",
-                total: w.preAgendamento?.preco_total || 0,
-              }
-              document.getElementById("tela-pix")?.classList.add("hidden")
-              document.getElementById("tela-sucesso")?.classList.remove("hidden")
-            } else if (j.status === "Cancelado") {
-              clearInterval(w.pixTimerInt); clearInterval(w.pixPollInt)
-              alert("Reserva cancelada (expirada). Faça o agendamento novamente.")
-              document.getElementById("tela-pix")?.classList.add("hidden")
-              document.getElementById("tela-menu")?.classList.remove("hidden")
-            }
-          } catch (e) { /* silencia */ }
-        }
-        ;(window as any).pixCopiarCola = function() {
-          const cpc = document.getElementById("pix-copia-cola") as HTMLTextAreaElement
-          if (!cpc) return
-          cpc.select()
-          try { document.execCommand("copy") } catch {}
-          try { (navigator as any)?.clipboard?.writeText(cpc.value) } catch {}
-          const btn = document.getElementById("btn-copiar-pix")
-          if (btn) { btn.innerText = "COPIADO ✓"; setTimeout(() => { btn.innerText = "COPIAR CÓDIGO PIX" }, 2000) }
-        }
-        ;(window as any).pixCancelar = async function() {
-          const w = window as any
-          if (!w.pixSessao) return
-          if (!confirm("Cancelar o pagamento e voltar? O horário será liberado.")) return
-          clearInterval(w.pixTimerInt); clearInterval(w.pixPollInt)
-          try {
-            await fetch("/api/pagbank/pix/cancel", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ agendamento_id: w.pixSessao.agendamento_id, motivo: "user_cancel" }),
-            })
-          } catch {}
-          document.getElementById("tela-pix")?.classList.add("hidden")
-          document.getElementById("tela-menu")?.classList.remove("hidden")
-        }
 
         async function carregarGaleriaMenuCliente() {
           const track = document.getElementById("hero-track")
@@ -1210,9 +1031,7 @@ export default function BarbeariaHiroschi() {
             const nome = (document.getElementById("novo-serv-nome") as HTMLInputElement)?.value.trim() || ""
             const preco = parseFloat((document.getElementById("novo-serv-preco") as HTMLInputElement)?.value) || 0
             const tempo = (document.getElementById("novo-serv-tempo") as HTMLInputElement)?.value.trim() || ""
-            const fotoURL = (document.getElementById("novo-serv-foto") as HTMLInputElement)?.value.trim() || ""
-            const fotoUploaded = (window as any).novoServicoFotoDataUri || ""
-            const foto = fotoUploaded || fotoURL
+            const foto = (window as any).novoServicoFotoDataUri || ""
 
             if (!nome || preco <= 0 || !tempo) {
               alert("Preencha todos os campos!")
@@ -1224,7 +1043,6 @@ export default function BarbeariaHiroschi() {
               ;(document.getElementById("novo-serv-nome") as HTMLInputElement).value = ""
               ;(document.getElementById("novo-serv-preco") as HTMLInputElement).value = ""
               ;(document.getElementById("novo-serv-tempo") as HTMLInputElement).value = ""
-              ;(document.getElementById("novo-serv-foto") as HTMLInputElement).value = ""
               ;(document.getElementById("novo-serv-foto-file") as HTMLInputElement).value = ""
               document.getElementById("novo-serv-foto-preview")?.classList.add("hidden")
               ;(window as any).novoServicoFotoDataUri = ""
@@ -1690,7 +1508,7 @@ export default function BarbeariaHiroschi() {
 
           // Antecedência mínima de 6 horas
           const agora = new Date()
-          const limiteAntecedencia = new Date(agora.getTime() + 6 * 60 * 60 * 1000)
+          const limiteAntecedencia = new Date(agora.getTime() + 3 * 60 * 60 * 1000)
           const [anoSel, mesSel, diaSel] = dataSelecionada.split("-")
 
           container.innerHTML = ""
@@ -2025,10 +1843,37 @@ export default function BarbeariaHiroschi() {
           listaMembrosClube.forEach((m) => {
             const div = document.createElement("div")
             div.className = "item-agenda"
+            const dInicio = m.data_inicio || ""
+            const dTermino = m.data_termino || ""
             div.innerHTML = `
               <div><b>${m.nome}</b> <span class="tag-categoria-clube">${m.categoria || "—"}</span><br>📱 ${m.telefone}</div>
-              <button class="btn-deletar" data-id="${m.id}">Excluir</button>
+              <div style="display:flex; gap:6px; margin-top:8px; font-size:12px;">
+                <label style="flex:1;">Data Início do Clube<br/><input type="date" class="mc-inicio" data-id="${m.id}" value="${dInicio}" style="padding:6px; font-size:13px; width:100%;"/></label>
+                <label style="flex:1;">Data Término do Clube<br/><input type="date" class="mc-termino" data-id="${m.id}" value="${dTermino}" style="padding:6px; font-size:13px; width:100%;"/></label>
+              </div>
+              <div style="display:flex; gap:6px; margin-top:6px;">
+                <button class="btn-mc-salvar" data-id="${m.id}" style="flex:1; background-color:#2e7d32; padding:8px; font-size:12px;">Salvar Datas</button>
+                <button class="btn-deletar" data-id="${m.id}" style="flex:1; padding:8px; font-size:12px;">Excluir Membro</button>
+              </div>
             `
+            const btnSalvar = div.querySelector(".btn-mc-salvar")
+            if (btnSalvar) {
+              btnSalvar.addEventListener("click", async (e: any) => {
+                const id = e.target.getAttribute("data-id")
+                const vIni = (div.querySelector(".mc-inicio") as HTMLInputElement).value || ""
+                const vTer = (div.querySelector(".mc-termino") as HTMLInputElement).value || ""
+                try {
+                  const { updateDoc } = await import("firebase/firestore")
+                  await updateDoc(doc(db, "membros_clube", id), {
+                    data_inicio: vIni,
+                    data_termino: vTer,
+                  })
+                  alert("Datas salvas.")
+                } catch (err: any) {
+                  alert("Erro: " + (err?.message || err))
+                }
+              })
+            }
             const btn = div.querySelector(".btn-deletar")
             if (btn) {
               btn.addEventListener("click", async () => {
@@ -2288,6 +2133,53 @@ export default function BarbeariaHiroschi() {
           if (elTotalEntradas) elTotalEntradas.innerText = fmt(totalEntradas)
           if (elTotalSaidas) elTotalSaidas.innerText = fmt(totalSaidas)
           if (elSaldo) elSaldo.innerText = fmt(saldoFinal)
+
+          // ===== NOVOS RESUMOS: Dia, Semana, Mês (mesma lógica — exclui membros do Clube) =====
+          // Carrega TODOS agendamentos e movimentacoes para calcular ranges
+          const todayStr = new Date().toLocaleDateString("sv") // YYYY-MM-DD local
+          const now = new Date()
+          const diaSemana = now.getDay() // 0=domingo
+          const diffParaSegunda = diaSemana === 0 ? -6 : 1 - diaSemana
+          const segFim = new Date(now); segFim.setDate(now.getDate() + diffParaSegunda)
+          const segStr = segFim.toLocaleDateString("sv")
+          const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString("sv")
+
+          function somaRange(startStr: string, endStr: string) {
+            return { agendamentos: 0, entradas: 0, saidas: 0 }
+          }
+
+          const [snapAllAg, snapAllMov] = await Promise.all([
+            getDocs(collection(db, "agendamentos")),
+            getDocs(collection(db, "caixa_movimentacoes")),
+          ])
+
+          const totalPorRange = (desde: string, ate: string) => {
+            let ag = 0, en = 0, sa = 0
+            snapAllAg.forEach((docSnap: any) => {
+              const a = docSnap.data()
+              if (!a.data || a.data < desde || a.data > ate) return
+              if (a.status !== "Confirmado") return
+              const t = String(a.cliente_telefone || "").replace(/\D/g, "")
+              if (telefonesMembros.has(t)) return // regra atual preservada
+              ag += Number(a.preco_total || 0)
+            })
+            snapAllMov.forEach((docSnap: any) => {
+              const m = docSnap.data()
+              if (!m.data || m.data < desde || m.data > ate) return
+              if (m.tipo === "entrada") en += Number(m.valor || 0)
+              else sa += Number(m.valor || 0)
+            })
+            return { ag, en, sa, total: ag + en - sa }
+          }
+          const rDia = totalPorRange(todayStr, todayStr)
+          const rSem = totalPorRange(segStr, todayStr)
+          const rMes = totalPorRange(inicioMes, todayStr)
+          const setT = (id: string, val: number) => {
+            const el = document.getElementById(id); if (el) el.innerText = fmt(val)
+          }
+          setT("fin-total-dia", rDia.total)
+          setT("fin-total-semana", rSem.total)
+          setT("fin-total-mes", rMes.total)
 
           // Lista de movimentações manuais
           if (listaMov) {
@@ -2796,52 +2688,9 @@ export default function BarbeariaHiroschi() {
           <div className="section-title" style={{ marginTop: "20px" }}>2. Horários Disponíveis (Terça a Sábado)</div>
           <div id="aviso-restricao" className="aviso-servico hidden">Aviso: Horários limitados para este serviço até as 17:00.</div>
           <div className="grid-horarios" id="container-horarios"></div>
-          <button id="btn-salvar-agendamento" style={{ marginTop: "30px" }}>Confirmar Agendamento</button>
+          <button id="btn-salvar-agendamento" style={{ marginTop: "30px" }}>CONFIRMAR AGENDAMENTO</button>
         </div>
 
-        <div id="tela-pagamento" className="hidden">
-          <h2>Forma de Pagamento</h2>
-          <button id="btn-pg-voltar" style={{ backgroundColor: "#65676b", color: "#fff", marginBottom: "15px", padding: "10px" }}>← Voltar</button>
-          <div id="pg-resumo" className="pg-resumo"></div>
-          <div className="section-title" style={{ marginTop: "18px" }}>Como você quer pagar?</div>
-          <div className="pg-formas">
-            <button id="btn-pagar-local" className="pg-forma-btn" type="button">
-              <div className="pg-icone">🏪</div>
-              <div className="pg-label">PAGAR NO LOCAL</div>
-              <div className="pg-sub">Pague em dinheiro/cartão na barbearia</div>
-            </button>
-            <button id="btn-pagar-pix" className="pg-forma-btn" type="button">
-              <div className="pg-icone">📱</div>
-              <div className="pg-label">PAGAR VIA PIX</div>
-              <div className="pg-sub">Reserva por 10 min, confirmação automática</div>
-            </button>
-          </div>
-          <button id="btn-pg-confirmar" style={{ marginTop: "24px" }}>CONFIRMAR AGENDAMENTO</button>
-        </div>
-
-        <div id="tela-pix" className="hidden">
-          <h2>Pagamento Pix</h2>
-          <div className="pix-timer-box">
-            <span>Reserva expira em</span>
-            <div id="pix-timer" className="pix-timer">10:00</div>
-          </div>
-          <div className="pix-valor-box">
-            Valor a pagar: <strong id="pix-valor">R$ 0,00</strong>
-          </div>
-          <div className="pix-qr-wrap">
-            <img id="pix-qr-img" alt="QR Code Pix" />
-          </div>
-          <div className="section-title" style={{ marginTop: "16px" }}>Ou copie o código Pix (copia e cola):</div>
-          <textarea id="pix-copia-cola" readOnly rows={4} className="pix-copia-cola"></textarea>
-          <button id="btn-copiar-pix" onClick={() => (window as any).pixCopiarCola?.()} style={{ marginTop: "10px", backgroundColor: "#002855", color: "#fff" }}>COPIAR CÓDIGO PIX</button>
-          <p className="pix-instrucoes">
-            1. Abra seu app do banco<br />
-            2. Escaneie o QR ou cole o código<br />
-            3. Confirme o pagamento<br />
-            <strong>A confirmação chegará automaticamente. Não feche esta tela.</strong>
-          </p>
-          <button id="btn-cancelar-pix" onClick={() => (window as any).pixCancelar?.()} style={{ marginTop: "18px", backgroundColor: "#65676b", color: "#fff" }}>CANCELAR E VOLTAR</button>
-        </div>
 
         <div id="tela-sucesso" className="hidden">
           <div className="sucesso-box">
@@ -2923,7 +2772,6 @@ export default function BarbeariaHiroschi() {
                   <input type="number" step="0.01" id="novo-serv-preco" placeholder="Preço (Ex: 20.00)" style={{ padding: "10px", fontSize: "14px", flex: 1 }} />
                   <input type="text" id="novo-serv-tempo" placeholder="Tempo (Ex: 15 min)" style={{ padding: "10px", fontSize: "14px", flex: 1 }} />
                 </div>
-                <input type="text" id="novo-serv-foto" placeholder="URL da foto (opcional)" style={{ padding: "10px", fontSize: "14px" }} />
                 <input type="file" id="novo-serv-foto-file" accept="image/*" style={{ padding: "8px", fontSize: "13px" }} />
                 <img id="novo-serv-foto-preview" className="file-preview hidden" alt="preview" />
                 <button id="btn-cadastrar-servico" style={{ marginTop: "5px", padding: "10px", backgroundColor: "#002855" }}>Cadastrar Serviço</button>
@@ -2953,6 +2801,20 @@ export default function BarbeariaHiroschi() {
               <div className="fin-card fin-saldo">
                 <div className="fin-label">Saldo Final do Caixa</div>
                 <div className="fin-valor" id="fin-saldo-final">R$ 0,00</div>
+              </div>
+            </div>
+            <div className="fin-cards" style={{ marginTop: "10px" }}>
+              <div className="fin-card" style={{ background:"#e8f4ea" }}>
+                <div className="fin-label">Total do Dia</div>
+                <div className="fin-valor" id="fin-total-dia" style={{ color:"#2e7d32" }}>R$ 0,00</div>
+              </div>
+              <div className="fin-card" style={{ background:"#e8f0f9" }}>
+                <div className="fin-label">Total da Semana</div>
+                <div className="fin-valor" id="fin-total-semana" style={{ color:"#002855" }}>R$ 0,00</div>
+              </div>
+              <div className="fin-card" style={{ background:"#fff5e1" }}>
+                <div className="fin-label">Total do Mês</div>
+                <div className="fin-valor" id="fin-total-mes" style={{ color:"#a97142" }}>R$ 0,00</div>
               </div>
             </div>
             <div className="admin-box">

@@ -145,7 +145,9 @@ async function handlePixCreate(request) {
 
   const orderId = orderJson.id
   const qr = orderJson.qr_codes[0]
-  const pngLink = qr.links?.find(l => l.rel === 'QRCODE.PNG')?.href
+  // PagBank retorna múltiplos links; o PNG tem media="image/png"
+  const pngLink = qr.links?.find(l => l.media === 'image/png' || l.rel === 'QRCODE.PNG')?.href
+    || `${base}/qrcode/${qr.id}/png`
   const pixText = qr.text
 
   // 3) Atualiza agendamento com dados do PagBank
@@ -311,7 +313,17 @@ async function handleClubeCreate(request) {
     return json({ error: 'PAGBANK_FALHOU', pagbank_status: r.status, pagbank_body: t.slice(0, 300) }, 502)
   }
   const qr = j.qr_codes[0]
-  const png = qr.links?.find(l => l.rel === 'QRCODE.PNG')?.href
+  const png = qr.links?.find(l => l.media === 'image/png' || l.rel === 'QRCODE.PNG')?.href
+    || `${base}/qrcode/${qr.id}/png`
+  // Download do PNG no backend e conversão para data URI inline (evita CORS/erros de carregamento)
+  let qrDataUri = png
+  try {
+    const pngRes = await fetch(png, { headers: { Authorization: `Bearer ${token}` } })
+    if (pngRes.ok) {
+      const buf = Buffer.from(await pngRes.arrayBuffer())
+      qrDataUri = 'data:image/png;base64,' + buf.toString('base64')
+    }
+  } catch (e) { /* keep href fallback */ }
   // Atualiza solicitação com dados do Pix (setDoc merge — cria se não existir)
   const { setDoc } = await import('firebase/firestore')
   await setDoc(doc(db, 'solicitacoes_clube', solicitacao_id), {
@@ -325,7 +337,7 @@ async function handleClubeCreate(request) {
     solicitacao_id,
     order_id: j.id,
     qr_code_text: qr.text,
-    qr_code_png_url: png,
+    qr_code_png_url: qrDataUri,
     valor_centavos: valorCentavos,
     reserva_expira_em: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
   })
